@@ -58,7 +58,7 @@
     </style>
   </head>
   <body>
-    <h1>Duel spatial : haut contre bas</h1>
+    <h1>Guerre spatiale : haut contre bas</h1>
     <canvas id="gameCanvas"></canvas>
     <button id="replayButton" type="button">Rejouer</button>
 
@@ -79,15 +79,19 @@
       const HEAT_RECOVERY_LEVEL = 35;
       const MAX_LOSSES = 5;
       const RESPAWN_DELAY = 1200;
-      const TOP_Y_RATIO = 0.14;
-      const BOTTOM_Y_RATIO = 0.86;
+      const TOP_COLOR = "#7bdff2";
+      const BOTTOM_COLOR = "#ff9f68";
+      const TOP_KEY_ID = "key_top";
+      const BOTTOM_KEY_ID = "key_bottom";
 
+      // ships: Map<shipId, ship>  — one entry per active finger + 2 keyboard ships
+      const ships = new Map();
       const bullets = [];
       const explosions = [];
-      const pointerAssignments = new Map();
+      const pointerToShip = new Map();
       const keyState = new Set();
 
-      let players = {};
+      let teamLosses = { top: 0, bottom: 0 };
       let gameOver = false;
       let winnerText = "";
       let lastTime = 0;
@@ -182,21 +186,35 @@
         } catch (e) {}
       }
 
-      function createPlayer(id, name, color, direction, yRatio) {
+      // Vertical direction each team's ship faces: top points down (+1), bottom points up (-1)
+      function teamDir(team) {
+        return team === "top" ? 1 : -1;
+      }
+
+      function clampX(x) {
+        return Math.min(Math.max(x, SHIP_SIZE + 12), canvas.width - SHIP_SIZE - 12);
+      }
+
+      function clampY(y) {
+        return Math.min(Math.max(y, SHIP_SIZE + 12), canvas.height - SHIP_SIZE - 12);
+      }
+
+      function createShip(id, team, x, y, isKeyboard) {
         return {
           id,
-          name,
-          color,
-          direction,
-          yRatio,
-          x: canvas.width / 2,
-          y: canvas.height * yRatio,
+          team,
+          color: team === "top" ? TOP_COLOR : BOTTOM_COLOR,
+          x: clampX(x),
+          y: clampY(y),
           heat: 0,
           lastFire: 0,
-          losses: 0,
           active: true,
           overheated: false,
           respawnAt: 0,
+          isKeyboard: !!isKeyboard,
+          // Last known position (finger or keyboard) used when respawning
+          targetX: x,
+          targetY: y,
         };
       }
 
@@ -218,150 +236,196 @@
         explosions.push({ particles });
       }
 
-      function resetPlayers() {
-        players = {
-          top: createPlayer("top", "Joueur du haut", "#7bdff2", 1, TOP_Y_RATIO),
-          bottom: createPlayer("bottom", "Joueur du bas", "#ff9f68", -1, BOTTOM_Y_RATIO),
-        };
+      function initKeyboardShips() {
+        const now = performance.now();
+        const kTop = createShip(TOP_KEY_ID, "top", canvas.width / 2, canvas.height * 0.14, true);
+        kTop.lastFire = now;
+        ships.set(TOP_KEY_ID, kTop);
+
+        const kBottom = createShip(BOTTOM_KEY_ID, "bottom", canvas.width / 2, canvas.height * 0.86, true);
+        kBottom.lastFire = now;
+        ships.set(BOTTOM_KEY_ID, kBottom);
       }
 
       function resetGame() {
         bullets.length = 0;
         explosions.length = 0;
-        pointerAssignments.clear();
+        ships.clear();
+        pointerToShip.clear();
         keyState.clear();
+        teamLosses = { top: 0, bottom: 0 };
         gameOver = false;
         winnerText = "";
         lastTime = 0;
         replayButton.style.display = "none";
-        resetPlayers();
         resize();
+        initKeyboardShips();
       }
 
       function resize() {
         const rect = canvas.getBoundingClientRect();
         canvas.width = rect.width;
         canvas.height = rect.height;
-
-        for (const player of Object.values(players)) {
-          player.y = canvas.height * player.yRatio;
-          player.x = Math.min(Math.max(player.x, SHIP_SIZE + 12), canvas.width - SHIP_SIZE - 12);
+        for (const ship of ships.values()) {
+          ship.x = clampX(ship.x);
+          ship.y = clampY(ship.y);
         }
       }
 
-      function movePlayerToX(playerId, clientX) {
-        const player = players[playerId];
-        if (!player || !player.active || gameOver) return;
-        const rect = canvas.getBoundingClientRect();
-        const scaleX = canvas.width / rect.width;
-        const x = (clientX - rect.left) * scaleX;
-        player.x = Math.min(Math.max(x, SHIP_SIZE + 12), canvas.width - SHIP_SIZE - 12);
-      }
-
-      function handleKeyboardMovement(player, leftPressed, rightPressed, dt) {
-        if (!player.active || gameOver) return;
-        const sec = dt / 1000;
-        if (leftPressed && !rightPressed) player.x -= MOVE_SPEED * sec;
-        if (rightPressed && !leftPressed) player.x += MOVE_SPEED * sec;
-        player.x = Math.min(Math.max(player.x, SHIP_SIZE + 12), canvas.width - SHIP_SIZE - 12);
-      }
-
-      function fireBullet(player, now) {
-        player.lastFire = now;
-        bullets.push({
-          x: player.x,
-          y: player.y + player.direction * SHIP_SIZE,
-          vy: player.direction * BULLET_SPEED,
-          color: player.color,
-          ownerId: player.id,
-        });
-        player.heat = Math.min(MAX_HEAT, player.heat + SHOT_HEAT);
-        if (player.heat >= MAX_HEAT) player.overheated = true;
-        playShot();
-      }
-
-      function endGame(winnerName) {
+      function endGame(loserTeam) {
         gameOver = true;
-        winnerText = `${winnerName} gagne !`;
+        winnerText =
+          loserTeam === "top" ? "Équipe du bas gagne !" : "Équipe du haut gagne !";
         replayButton.style.display = "block";
       }
 
-      function destroyPlayer(player, bulletColor, now) {
-        player.active = false;
-        player.heat = 0;
-        player.overheated = false;
-        player.losses += 1;
-        createExplosion(player.x, player.y, player.color);
+      function destroyShip(ship, bulletColor, now) {
+        ship.active = false;
+        ship.heat = 0;
+        ship.overheated = false;
+        createExplosion(ship.x, ship.y, ship.color);
         playExplosion();
-        triggerFlash(bulletColor, player.color);
+        triggerFlash(bulletColor, ship.color);
 
-        if (player.losses >= MAX_LOSSES) {
-          const winnerName = player.id === "top" ? players.bottom.name : players.top.name;
-          endGame(winnerName);
+        teamLosses[ship.team] += 1;
+        if (teamLosses[ship.team] >= MAX_LOSSES) {
+          endGame(ship.team);
           return;
         }
 
-        player.respawnAt = now + RESPAWN_DELAY;
-        player.x = canvas.width / 2;
+        ship.respawnAt = now + RESPAWN_DELAY;
+        if (ship.isKeyboard) {
+          // Keyboard ships respawn at their default starting position
+          ship.x = canvas.width / 2;
+          ship.y = ship.team === "top" ? canvas.height * 0.14 : canvas.height * 0.86;
+        } else {
+          // Touch ships respawn at the last known finger position
+          ship.x = clampX(ship.targetX);
+          ship.y = clampY(ship.targetY);
+        }
+      }
+
+      function fireBullet(ship, now) {
+        ship.lastFire = now;
+
+        // Default direction: straight toward the enemy half
+        let vx = 0;
+        let vy = teamDir(ship.team) * BULLET_SPEED;
+
+        // Aim at the nearest active enemy ship instead
+        let minDist = Infinity;
+        for (const other of ships.values()) {
+          if (other.team === ship.team || !other.active) continue;
+          const dx = other.x - ship.x;
+          const dy = other.y - ship.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < minDist) {
+            minDist = dist;
+            const len = dist || 1;
+            vx = (dx / len) * BULLET_SPEED;
+            vy = (dy / len) * BULLET_SPEED;
+          }
+        }
+
+        bullets.push({
+          x: ship.x,
+          y: ship.y,
+          vx,
+          vy,
+          color: ship.color,
+          ownerTeam: ship.team,
+        });
+
+        ship.heat = Math.min(MAX_HEAT, ship.heat + SHOT_HEAT);
+        if (ship.heat >= MAX_HEAT) ship.overheated = true;
+        playShot();
+      }
+
+      function handleKeyboardMovement(dt) {
+        const sec = dt / 1000;
+        const kTop = ships.get(TOP_KEY_ID);
+        const kBottom = ships.get(BOTTOM_KEY_ID);
+
+        if (kTop && kTop.active) {
+          const left = keyState.has("a") || keyState.has("q");
+          const right = keyState.has("d");
+          const up = keyState.has("w") || keyState.has("z");
+          const down = keyState.has("s");
+          if (left && !right) kTop.x -= MOVE_SPEED * sec;
+          if (right && !left) kTop.x += MOVE_SPEED * sec;
+          if (up && !down) kTop.y -= MOVE_SPEED * sec;
+          if (down && !up) kTop.y += MOVE_SPEED * sec;
+          kTop.x = clampX(kTop.x);
+          kTop.y = clampY(kTop.y);
+        }
+
+        if (kBottom && kBottom.active) {
+          const left = keyState.has("arrowleft");
+          const right = keyState.has("arrowright");
+          const up = keyState.has("arrowup");
+          const down = keyState.has("arrowdown");
+          if (left && !right) kBottom.x -= MOVE_SPEED * sec;
+          if (right && !left) kBottom.x += MOVE_SPEED * sec;
+          if (up && !down) kBottom.y -= MOVE_SPEED * sec;
+          if (down && !up) kBottom.y += MOVE_SPEED * sec;
+          kBottom.x = clampX(kBottom.x);
+          kBottom.y = clampY(kBottom.y);
+        }
       }
 
       function update(dt) {
         const now = performance.now();
         const sec = dt / 1000;
 
-        handleKeyboardMovement(
-          players.top,
-          keyState.has("a") || keyState.has("q"),
-          keyState.has("d"),
-          dt
-        );
-        handleKeyboardMovement(
-          players.bottom,
-          keyState.has("arrowleft"),
-          keyState.has("arrowright"),
-          dt
-        );
+        handleKeyboardMovement(dt);
 
-        for (const player of Object.values(players)) {
-          player.heat = Math.max(0, player.heat - COOL_RATE * sec);
+        for (const ship of ships.values()) {
+          ship.heat = Math.max(0, ship.heat - COOL_RATE * sec);
+          if (ship.overheated && ship.heat <= HEAT_RECOVERY_LEVEL) ship.overheated = false;
 
-          if (player.overheated && player.heat <= HEAT_RECOVERY_LEVEL) {
-            player.overheated = false;
+          if (!ship.active && !gameOver && now >= ship.respawnAt) {
+            ship.active = true;
+            ship.lastFire = now;
+            // Touch ships reappear at the current finger position
+            if (!ship.isKeyboard) {
+              ship.x = clampX(ship.targetX);
+              ship.y = clampY(ship.targetY);
+            }
           }
 
-          if (!player.active && !gameOver && now >= player.respawnAt) {
-            player.active = true;
-            player.lastFire = now;
-          }
-
-          if (
-            !gameOver &&
-            player.active &&
-            !player.overheated &&
-            now - player.lastFire >= FIRE_INTERVAL
-          ) {
-            fireBullet(player, now);
+          if (!gameOver && ship.active && !ship.overheated && now - ship.lastFire >= FIRE_INTERVAL) {
+            fireBullet(ship, now);
           }
         }
 
         for (let i = bullets.length - 1; i >= 0; i--) {
           const bullet = bullets[i];
+          bullet.x += bullet.vx * sec;
           bullet.y += bullet.vy * sec;
 
-          if (bullet.y < -30 || bullet.y > canvas.height + 30) {
+          if (
+            bullet.x < -50 ||
+            bullet.x > canvas.width + 50 ||
+            bullet.y < -50 ||
+            bullet.y > canvas.height + 50
+          ) {
             bullets.splice(i, 1);
             continue;
           }
 
-          const target = bullet.ownerId === "top" ? players.bottom : players.top;
-          if (!target.active) continue;
-
-          const dx = bullet.x - target.x;
-          const dy = bullet.y - target.y;
-          if (Math.sqrt(dx * dx + dy * dy) < SHIP_HIT_RADIUS + BULLET_RADIUS) {
-            destroyPlayer(target, bullet.color, now);
-            bullets.splice(i, 1);
+          let hit = false;
+          for (const ship of ships.values()) {
+            if (ship.team === bullet.ownerTeam || !ship.active) continue;
+            const dx = bullet.x - ship.x;
+            const dy = bullet.y - ship.y;
+            if (Math.sqrt(dx * dx + dy * dy) < SHIP_HIT_RADIUS + BULLET_RADIUS) {
+              destroyShip(ship, bullet.color, now);
+              bullets.splice(i, 1);
+              hit = true;
+              break;
+            }
           }
+          if (hit) continue;
         }
 
         for (let e = explosions.length - 1; e >= 0; e--) {
@@ -420,38 +484,39 @@
         ctx.restore();
       }
 
-      function drawHeatBar(player, x, y, width, height) {
-        ctx.save();
-        ctx.fillStyle = "#00000055";
-        ctx.fillRect(x, y, width, height);
-        ctx.fillStyle = player.overheated ? "#ff4b4b" : "#ffd166";
-        ctx.fillRect(x, y, width * (player.heat / MAX_HEAT), height);
-        ctx.strokeStyle = "#ffffff88";
-        ctx.lineWidth = 2;
-        ctx.strokeRect(x, y, width, height);
-        ctx.fillStyle = "#fff4dd";
-        ctx.font = "bold 14px Arial";
-        ctx.textAlign = "left";
-        ctx.fillText(`${player.name} • chauffe`, x, y - 8);
-        ctx.restore();
-      }
-
-      function drawLossIcons(player, anchorY) {
+      function drawTeamLossIcons(team, anchorY) {
         const iconSize = 10;
         const gap = 28;
         const startX = canvas.width - 26;
-        for (let i = 0; i < player.losses; i++) {
-          const y = anchorY + (player.id === "top" ? i * gap : -i * gap);
-          drawShip(startX, y, player.color, player.direction, true, iconSize);
+        const losses = teamLosses[team];
+        for (let i = 0; i < losses; i++) {
+          const y = anchorY + (team === "top" ? i * gap : -i * gap);
+          drawShip(startX, y, team === "top" ? TOP_COLOR : BOTTOM_COLOR, teamDir(team), true, iconSize);
         }
       }
 
       function drawHud() {
-        drawHeatBar(players.top, 18, 24, 180, 14);
-        drawHeatBar(players.bottom, 18, canvas.height - 38, 180, 14);
-        drawLossIcons(players.top, 36);
-        drawLossIcons(players.bottom, canvas.height - 36);
+        ctx.save();
+        ctx.font = "bold 14px Arial";
+        ctx.textAlign = "left";
+        ctx.fillStyle = TOP_COLOR;
+        ctx.fillText(
+          `Équipe haut — vies perdues : ${teamLosses.top}/${MAX_LOSSES}`,
+          18,
+          24
+        );
+        ctx.fillStyle = BOTTOM_COLOR;
+        ctx.fillText(
+          `Équipe bas — vies perdues : ${teamLosses.bottom}/${MAX_LOSSES}`,
+          18,
+          canvas.height - 24
+        );
+        ctx.restore();
 
+        drawTeamLossIcons("top", 36);
+        drawTeamLossIcons("bottom", canvas.height - 36);
+
+        // Center dividing line (decorative — ships may cross it freely)
         ctx.save();
         ctx.strokeStyle = "#ffffff22";
         ctx.setLineDash([8, 8]);
@@ -461,15 +526,15 @@
         ctx.stroke();
         ctx.restore();
 
+        // Instructions near the center line
         ctx.save();
-        ctx.fillStyle = "#f7e4d2";
-        ctx.font = "14px Arial";
+        ctx.fillStyle = "#f7e4d288";
+        ctx.font = "12px Arial";
         ctx.textAlign = "center";
-        ctx.fillText("Haut : A/Q et D ou glisser dans la moitié haute", canvas.width / 2, 24);
         ctx.fillText(
-          "Bas : flèches ← → ou glisser dans la moitié basse",
+          "Haut : Q/A ← D → Z/W ↑ S ↓   |   Bas : ← → ↑ ↓   |   Toucher l'écran pour invoquer des vaisseaux",
           canvas.width / 2,
-          canvas.height - 16
+          canvas.height / 2 + 18
         );
         ctx.restore();
       }
@@ -486,7 +551,11 @@
         ctx.font = "bold 26px Arial";
         ctx.fillText(winnerText, canvas.width / 2, canvas.height / 2 - 4);
         ctx.font = "18px Arial";
-        ctx.fillText("5 vies perdues : le duel s'arrête.", canvas.width / 2, canvas.height / 2 + 30);
+        ctx.fillText(
+          `${MAX_LOSSES} vies perdues : la guerre s'arrête.`,
+          canvas.width / 2,
+          canvas.height / 2 + 30
+        );
         ctx.restore();
       }
 
@@ -505,12 +574,12 @@
         ctx.fillStyle = "#00000010";
         ctx.fillRect(0, canvas.height / 2, canvas.width, canvas.height / 2);
 
-        if (players.top.active) {
-          drawShip(players.top.x, players.top.y, players.top.color, players.top.direction);
-        }
-
-        if (players.bottom.active) {
-          drawShip(players.bottom.x, players.bottom.y, players.bottom.color, players.bottom.direction);
+        for (const ship of ships.values()) {
+          if (!ship.active) continue;
+          ctx.save();
+          if (ship.overheated) ctx.globalAlpha = 0.45;
+          drawShip(ship.x, ship.y, ship.color, teamDir(ship.team));
+          ctx.restore();
         }
 
         for (const bullet of bullets) {
@@ -554,22 +623,49 @@
       canvas.addEventListener("pointerdown", (e) => {
         e.preventDefault();
         unlockAudio();
+        if (gameOver) return;
         const rect = canvas.getBoundingClientRect();
-        const playerId = e.clientY - rect.top < rect.height / 2 ? "top" : "bottom";
-        pointerAssignments.set(e.pointerId, playerId);
-        movePlayerToX(playerId, e.clientX);
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        const x = (e.clientX - rect.left) * scaleX;
+        const y = (e.clientY - rect.top) * scaleY;
+        // Assign team based on where the finger first touches
+        const team = y < canvas.height / 2 ? "top" : "bottom";
+        const shipId = `touch_${e.pointerId}`;
+        if (ships.has(shipId)) return;
+        const ship = createShip(shipId, team, x, y, false);
+        ship.lastFire = performance.now();
+        ships.set(shipId, ship);
+        pointerToShip.set(e.pointerId, shipId);
         canvas.setPointerCapture(e.pointerId);
       });
 
       canvas.addEventListener("pointermove", (e) => {
         e.preventDefault();
-        const playerId = pointerAssignments.get(e.pointerId);
-        if (!playerId) return;
-        movePlayerToX(playerId, e.clientX);
+        const shipId = pointerToShip.get(e.pointerId);
+        if (!shipId) return;
+        const ship = ships.get(shipId);
+        if (!ship) return;
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        const x = (e.clientX - rect.left) * scaleX;
+        const y = (e.clientY - rect.top) * scaleY;
+        // Always update target so respawn lands at current finger position
+        ship.targetX = x;
+        ship.targetY = y;
+        if (ship.active) {
+          ship.x = clampX(x);
+          ship.y = clampY(y);
+        }
       });
 
       function releasePointer(e) {
-        pointerAssignments.delete(e.pointerId);
+        const shipId = pointerToShip.get(e.pointerId);
+        if (shipId) {
+          ships.delete(shipId);
+          pointerToShip.delete(e.pointerId);
+        }
       }
 
       canvas.addEventListener("pointerup", releasePointer);
