@@ -143,7 +143,10 @@
       const COOP_WAVES_TO_WIN = 5;
       const COOP_WAVE_END_DURATION = 3000;
       const COOP_ENEMY_SPAWN_INTERVAL = 900;
-      const COOP_ENEMY_BASE_MOVE_SPEED = 55;
+      const COOP_ENEMY_BASE_MOVE_SPEED = 75;
+      const COOP_ENEMY_FIRE_RATE_MULTIPLIER = 0.55;
+      const COOP_ENEMY_BASE_HP = 6;
+      const COOP_ENEMY_HP_PER_WAVE = 2;
       const COOP_MAX_PLAYER_DEATHS = 10;
 
       // Bonus system
@@ -282,6 +285,7 @@
 
       function getShipFireInterval(ship) {
         const base = getFireInterval();
+        if (ship.team === "enemy") return Math.max(60, base * COOP_ENEMY_FIRE_RATE_MULTIPLIER);
         return ship.bonusType === "rapid" ? base * 0.42 : base;
       }
 
@@ -412,6 +416,8 @@
           bonusExpiry: 0,
           shield: false,
           ghostHits: 0,
+          hp: 1,
+          maxHp: 1,
         };
       }
 
@@ -519,6 +525,13 @@
       }
 
       function destroyShip(ship, bulletColor) {
+        if (ship.team === "enemy" && ship.hp > 1) {
+          ship.hp -= 1;
+          createExplosion(ship.x, ship.y, "#ff6677");
+          triggerFlash(bulletColor, ship.color);
+          return;
+        }
+
         // Shield absorbs the hit
         if (ship.shield) {
           ship.shield = false;
@@ -810,6 +823,9 @@
             const pos = coopEnemySpawnList.shift();
             const id = `enemy_${coopEnemyIdCounter++}`;
             const ship = createShip(id, "enemy", pos.x, pos.y);
+            const hp = COOP_ENEMY_BASE_HP + (coopWave - 1) * COOP_ENEMY_HP_PER_WAVE;
+            ship.maxHp = hp;
+            ship.hp = hp;
             ship.lastFire = performance.now() + 800 + Math.random() * 600;
             ships.set(id, ship);
             coopEnemySpawnTimer = COOP_ENEMY_SPAWN_INTERVAL;
@@ -823,19 +839,31 @@
             let targetX = ship.x;
             let targetY = canvas.height * 0.8;
             let minDist = Infinity;
+            let targetShip = null;
             for (const other of ships.values()) {
               if (other.team !== "player") continue;
               const dx = other.x - ship.x;
               const dy = other.y - ship.y;
               const dist = Math.sqrt(dx * dx + dy * dy);
-              if (dist < minDist) { minDist = dist; targetX = other.x; targetY = other.y; }
+              if (dist < minDist) {
+                minDist = dist;
+                targetX = other.x;
+                targetY = other.y;
+                targetShip = other;
+              }
             }
             const dx = targetX - ship.x;
             const dy = targetY - ship.y;
             const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-            if (dist > 80) {
-              ship.x = clampX(ship.x + (dx / dist) * COOP_ENEMY_BASE_MOVE_SPEED * sec);
-              ship.y = clampY(ship.y + (dy / dist) * COOP_ENEMY_BASE_MOVE_SPEED * sec);
+            const wavePressure = 1 + Math.min(1.2, (coopWave - 1) * 0.15);
+            const speed = COOP_ENEMY_BASE_MOVE_SPEED * wavePressure;
+            if (dist > 56) {
+              ship.x = clampX(ship.x + (dx / dist) * speed * sec);
+              ship.y = clampY(ship.y + (dy / dist) * speed * sec);
+            }
+
+            if (targetShip && minDist <= SHIP_HIT_RADIUS * 0.95 && targetShip.active) {
+              destroyShip(targetShip, ship.color);
             }
           }
 
@@ -1073,6 +1101,69 @@
           ctx.lineTo(x + size * 0.9, y + size * 0.9);
           ctx.stroke();
         }
+
+        ctx.restore();
+      }
+
+      function drawEnemyMonsterShip(x, y, direction, size, hpRatio = 1) {
+        ctx.save();
+        ctx.translate(x, y);
+        if (direction < 0) ctx.rotate(Math.PI);
+
+        const bodyGradient = ctx.createLinearGradient(0, -size * 0.95, 0, size * 0.95);
+        bodyGradient.addColorStop(0, "#ffd8dc");
+        bodyGradient.addColorStop(0.3, "#ff4455");
+        bodyGradient.addColorStop(1, "#2a060c");
+        ctx.fillStyle = bodyGradient;
+        ctx.strokeStyle = "#ffe4e8";
+        ctx.lineWidth = 2.2;
+
+        ctx.beginPath();
+        ctx.moveTo(0, size * 1.05);
+        ctx.lineTo(-size * 0.82, -size * 0.62);
+        ctx.lineTo(-size * 0.32, -size * 0.22);
+        ctx.lineTo(-size * 0.18, -size * 1.02);
+        ctx.lineTo(0, -size * 0.72);
+        ctx.lineTo(size * 0.18, -size * 1.02);
+        ctx.lineTo(size * 0.32, -size * 0.22);
+        ctx.lineTo(size * 0.82, -size * 0.62);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = "#fff4f6";
+        ctx.shadowColor = "#ff7080";
+        ctx.shadowBlur = 16;
+        ctx.beginPath();
+        ctx.moveTo(-size * 0.08, -size * 0.48);
+        ctx.lineTo(-size * 0.24, -size * 0.24);
+        ctx.lineTo(-size * 0.02, -size * 0.17);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.moveTo(size * 0.08, -size * 0.48);
+        ctx.lineTo(size * 0.24, -size * 0.24);
+        ctx.lineTo(size * 0.02, -size * 0.17);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = "#ffffff66";
+        ctx.beginPath();
+        ctx.ellipse(0, -size * 0.2, size * 0.22, size * 0.12, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        const barW = size * 1.85;
+        const barH = Math.max(5, size * 0.12);
+        const by = -size * 1.35;
+        ctx.fillStyle = "#00000088";
+        ctx.fillRect(-barW / 2, by, barW, barH);
+        ctx.fillStyle = hpRatio > 0.35 ? "#ff6677" : "#ff1f3d";
+        ctx.fillRect(-barW / 2, by, barW * Math.max(0, Math.min(1, hpRatio)), barH);
+        ctx.strokeStyle = "#ffd6db";
+        ctx.lineWidth = 1.2;
+        ctx.strokeRect(-barW / 2, by, barW, barH);
 
         ctx.restore();
       }
@@ -1406,7 +1497,17 @@
           if (ship.overheated) ctx.globalAlpha = 0.45;
           else if (ship.bonusType === "stealth") ctx.globalAlpha = 0.18;
           else if (ship.ghostHits > 0) ctx.globalAlpha = 0.42;
-          drawShip(ship.x, ship.y, ship.color, teamDir(ship.team));
+          if (ship.team === "enemy") {
+            drawEnemyMonsterShip(
+              ship.x,
+              ship.y,
+              teamDir(ship.team),
+              SHIP_SIZE * 1.08,
+              ship.maxHp > 0 ? ship.hp / ship.maxHp : 1
+            );
+          } else {
+            drawShip(ship.x, ship.y, ship.color, teamDir(ship.team));
+          }
           ctx.restore();
 
           // Shield bubble
