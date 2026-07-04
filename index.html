@@ -75,7 +75,7 @@
       const SHOT_HEAT = 18;
       const COOL_RATE = 34;
       const HEAT_RECOVERY_LEVEL = 35;
-      const WIN_MILESTONE = 5;
+      const WIN_MILESTONE = 10;
       const LEVELS_TO_WIN = 3;
       const LEVEL_END_DURATION = 2800;
       const TOP_COLOR = "#7bdff2";
@@ -88,7 +88,7 @@
       const BONUS_EFFECT_DURATION = 6000;
       const MAX_BONUS_PILLS = 3;
       const BONUS_SPAWN_INTERVAL = 5500;
-      const BONUS_TYPES = ["laser", "ring", "rapid", "triple", "shield", "scatter", "sniper", "bounce", "mega", "ghost", "homing", "burst", "piercing", "stealth", "nova"];
+      const BONUS_TYPES = ["laser", "ring", "rapid", "triple", "shield", "scatter", "sniper", "bounce", "mega", "ghost", "homing", "burst", "piercing", "stealth", "nova", "quake", "drill"];
       const BONUS_COLORS = {
         laser: "#00eeff",
         ring: "#cc44ff",
@@ -105,6 +105,8 @@
         piercing: "#00ffaa",
         stealth: "#8899aa",
         nova: "#ff8800",
+        quake: "#ff5566",
+        drill: "#66ffee",
       };
       const BONUS_ICONS = {
         laser: "⚡",
@@ -122,6 +124,8 @@
         piercing: "⇓",
         stealth: "◌",
         nova: "✸",
+        quake: "✹",
+        drill: "⬢",
       };
 
       // ships: Map<shipId, ship>  — one entry per active finger
@@ -201,6 +205,10 @@
       function getShipFireInterval(ship) {
         const base = getFireInterval();
         return ship.bonusType === "rapid" ? base * 0.42 : base;
+      }
+
+      function getInitialWallBounces() {
+        return 1 + Math.floor(Math.random() * 2);
       }
 
       function playBonusPickup() {
@@ -505,14 +513,14 @@
             btype: "sniper",
           });
         } else if (type === "bounce") {
-          // Bullet bounces off walls up to 3 times
+          // Bullet bounces exactly 2 times
           bullets.push({
             x: ship.x, y: ship.y,
             vx: aimVx, vy: aimVy,
             color: ship.color,
             ownerTeam: ship.team,
             btype: "bounce",
-            bounceLeft: 3,
+            wallBouncesLeft: 2,
           });
         } else if (type === "mega") {
           // 1 large slow bullet
@@ -568,6 +576,30 @@
             ownerTeam: ship.team,
             btype: "nova",
           });
+        } else if (type === "quake") {
+          // Dense radial volley
+          for (let i = 0; i < 12; i++) {
+            const a = (i / 12) * Math.PI * 2;
+            bullets.push({
+              x: ship.x, y: ship.y,
+              vx: Math.cos(a) * speed * 1.05,
+              vy: Math.sin(a) * speed * 1.05,
+              color: ship.color,
+              ownerTeam: ship.team,
+              btype: "quake",
+            });
+          }
+        } else if (type === "drill") {
+          // Ultra-fast piercing projectile
+          bullets.push({
+            x: ship.x, y: ship.y,
+            vx: aimVx * 2.25,
+            vy: aimVy * 2.25,
+            color: ship.color,
+            ownerTeam: ship.team,
+            btype: "drill",
+            hitShips: new Set(),
+          });
         } else {
           // normal, rapid (rapid only affects interval), ghost, stealth
           bullets.push({
@@ -599,7 +631,7 @@
           ship.heat = Math.max(0, ship.heat - COOL_RATE * sec);
           if (ship.overheated && ship.heat <= HEAT_RECOVERY_LEVEL) ship.overheated = false;
 
-          if (ship.active && !ship.overheated && now - ship.lastFire >= getShipFireInterval(ship)) {
+          if (ship.active && now - ship.lastFire >= getShipFireInterval(ship)) {
             fireBullet(ship, now);
           }
         }
@@ -637,12 +669,30 @@
             }
           }
 
-          // Bounce bullets reflect off canvas walls
-          if (bullet.btype === "bounce" && bullet.bounceLeft > 0) {
-            if (bullet.x <= BULLET_RADIUS && bullet.vx < 0) { bullet.vx = -bullet.vx; bullet.bounceLeft--; }
-            else if (bullet.x >= canvas.width - BULLET_RADIUS && bullet.vx > 0) { bullet.vx = -bullet.vx; bullet.bounceLeft--; }
-            if (bullet.y <= BULLET_RADIUS && bullet.vy < 0) { bullet.vy = -bullet.vy; bullet.bounceLeft--; }
-            else if (bullet.y >= canvas.height - BULLET_RADIUS && bullet.vy > 0) { bullet.vy = -bullet.vy; bullet.bounceLeft--; }
+          if (bullet.wallBouncesLeft == null) {
+            bullet.wallBouncesLeft = getInitialWallBounces();
+          }
+
+          // Missiles reflect 1-2 times before leaving the arena
+          if (bullet.wallBouncesLeft > 0) {
+            if (bullet.x <= BULLET_RADIUS && bullet.vx < 0) {
+              bullet.x = BULLET_RADIUS;
+              bullet.vx = -bullet.vx;
+              bullet.wallBouncesLeft--;
+            } else if (bullet.x >= canvas.width - BULLET_RADIUS && bullet.vx > 0) {
+              bullet.x = canvas.width - BULLET_RADIUS;
+              bullet.vx = -bullet.vx;
+              bullet.wallBouncesLeft--;
+            }
+            if (bullet.y <= BULLET_RADIUS && bullet.vy < 0) {
+              bullet.y = BULLET_RADIUS;
+              bullet.vy = -bullet.vy;
+              bullet.wallBouncesLeft--;
+            } else if (bullet.y >= canvas.height - BULLET_RADIUS && bullet.vy > 0) {
+              bullet.y = canvas.height - BULLET_RADIUS;
+              bullet.vy = -bullet.vy;
+              bullet.wallBouncesLeft--;
+            }
           }
 
           if (
@@ -678,7 +728,7 @@
                 }
               }
               destroyShip(ship, bullet.color);
-              if (bullet.btype === "piercing") {
+              if (bullet.btype === "piercing" || bullet.btype === "drill") {
                 bullet.hitShips.add(ship.id);
               } else {
                 bullets.splice(i, 1);
@@ -1109,10 +1159,20 @@
             ctx.arc(bullet.x, bullet.y, BULLET_RADIUS * 0.5, 0, Math.PI * 2);
             ctx.fillStyle = bullet.color;
             ctx.fill();
+          } else if (bullet.btype === "drill") {
+            const angle = Math.atan2(bullet.vy, bullet.vx);
+            ctx.translate(bullet.x, bullet.y);
+            ctx.rotate(angle);
+            ctx.shadowBlur = 20;
+            ctx.fillStyle = "#ffffff";
+            ctx.fillRect(-18, -2, 36, 4);
+            ctx.fillStyle = bullet.color;
+            ctx.fillRect(-15, -1.2, 30, 2.4);
           } else {
             const r =
               bullet.btype === "ring" ? BULLET_RADIUS * 0.78 :
               bullet.btype === "scatter" ? BULLET_RADIUS * 0.9 :
+              bullet.btype === "quake" ? BULLET_RADIUS * 1.05 :
               bullet.btype === "piercing" ? BULLET_RADIUS * 0.85 :
               BULLET_RADIUS;
             ctx.beginPath();
