@@ -88,13 +88,23 @@
       const BONUS_EFFECT_DURATION = 6000;
       const MAX_BONUS_PILLS = 3;
       const BONUS_SPAWN_INTERVAL = 5500;
-      const BONUS_TYPES = ["laser", "ring", "rapid", "triple", "shield"];
+      const BONUS_TYPES = ["laser", "ring", "rapid", "triple", "shield", "scatter", "sniper", "bounce", "mega", "ghost", "homing", "burst", "piercing", "stealth", "nova"];
       const BONUS_COLORS = {
         laser: "#00eeff",
         ring: "#cc44ff",
         rapid: "#ffdd00",
         triple: "#44ff88",
         shield: "#4499ff",
+        scatter: "#ff6644",
+        sniper: "#e0e0ff",
+        bounce: "#88ffcc",
+        mega: "#ff22aa",
+        ghost: "#bb88ff",
+        homing: "#ffaa00",
+        burst: "#ff44ff",
+        piercing: "#00ffaa",
+        stealth: "#8899aa",
+        nova: "#ff8800",
       };
       const BONUS_ICONS = {
         laser: "⚡",
@@ -102,6 +112,16 @@
         rapid: "»",
         triple: "≡",
         shield: "⬡",
+        scatter: "✦",
+        sniper: "◈",
+        bounce: "↻",
+        mega: "◉",
+        ghost: "○",
+        homing: "⊛",
+        burst: "⁂",
+        piercing: "⇓",
+        stealth: "◌",
+        nova: "✸",
       };
 
       // ships: Map<shipId, ship>  — one entry per active finger
@@ -291,6 +311,7 @@
           bonusType: null,
           bonusExpiry: 0,
           shield: false,
+          ghostHits: 0,
         };
       }
 
@@ -346,6 +367,14 @@
           ship.shield = false;
           ship.bonusType = null;
           createExplosion(ship.x, ship.y, "#4499ff");
+          return;
+        }
+
+        // Ghost absorbs hits (up to ghostHits remaining)
+        if (ship.ghostHits > 0) {
+          ship.ghostHits--;
+          createExplosion(ship.x, ship.y, "#bb88ff");
+          if (ship.ghostHits === 0) ship.bonusType = null;
           return;
         }
 
@@ -451,8 +480,96 @@
               btype: "triple",
             });
           }
+        } else if (type === "scatter") {
+          // 5 bullets in a wide fan
+          const aimAngle = Math.atan2(aimVy, aimVx);
+          for (const offset of [-0.55, -0.28, 0, 0.28, 0.55]) {
+            const a = aimAngle + offset;
+            bullets.push({
+              x: ship.x, y: ship.y,
+              vx: Math.cos(a) * speed * 0.9,
+              vy: Math.sin(a) * speed * 0.9,
+              color: ship.color,
+              ownerTeam: ship.team,
+              btype: "scatter",
+            });
+          }
+        } else if (type === "sniper") {
+          // 1 very fast thin bullet
+          bullets.push({
+            x: ship.x, y: ship.y,
+            vx: aimVx * 3.2,
+            vy: aimVy * 3.2,
+            color: ship.color,
+            ownerTeam: ship.team,
+            btype: "sniper",
+          });
+        } else if (type === "bounce") {
+          // Bullet bounces off walls up to 3 times
+          bullets.push({
+            x: ship.x, y: ship.y,
+            vx: aimVx, vy: aimVy,
+            color: ship.color,
+            ownerTeam: ship.team,
+            btype: "bounce",
+            bounceLeft: 3,
+          });
+        } else if (type === "mega") {
+          // 1 large slow bullet
+          bullets.push({
+            x: ship.x, y: ship.y,
+            vx: aimVx * 0.55,
+            vy: aimVy * 0.55,
+            color: ship.color,
+            ownerTeam: ship.team,
+            btype: "mega",
+          });
+        } else if (type === "homing") {
+          // Bullet curves toward nearest enemy
+          bullets.push({
+            x: ship.x, y: ship.y,
+            vx: aimVx, vy: aimVy,
+            color: ship.color,
+            ownerTeam: ship.team,
+            btype: "homing",
+          });
+        } else if (type === "burst") {
+          // 4 bullets in a tight cluster
+          const aimAngle = Math.atan2(aimVy, aimVx);
+          for (const offset of [-0.12, -0.04, 0.04, 0.12]) {
+            const a = aimAngle + offset;
+            bullets.push({
+              x: ship.x, y: ship.y,
+              vx: Math.cos(a) * speed * 1.1,
+              vy: Math.sin(a) * speed * 1.1,
+              color: ship.color,
+              ownerTeam: ship.team,
+              btype: "burst",
+            });
+          }
+        } else if (type === "piercing") {
+          // Bullet passes through ships (hits multiple)
+          bullets.push({
+            x: ship.x, y: ship.y,
+            vx: aimVx * 1.2,
+            vy: aimVy * 1.2,
+            color: ship.color,
+            ownerTeam: ship.team,
+            btype: "piercing",
+            hitShips: new Set(),
+          });
+        } else if (type === "nova") {
+          // Bullet explodes on impact into 6 shards
+          bullets.push({
+            x: ship.x, y: ship.y,
+            vx: aimVx * 0.8,
+            vy: aimVy * 0.8,
+            color: ship.color,
+            ownerTeam: ship.team,
+            btype: "nova",
+          });
         } else {
-          // normal or rapid (rapid only affects interval)
+          // normal, rapid (rapid only affects interval), ghost, stealth
           bullets.push({
             x: ship.x, y: ship.y,
             vx: aimVx, vy: aimVy,
@@ -492,6 +609,42 @@
           bullet.x += bullet.vx * sec;
           bullet.y += bullet.vy * sec;
 
+          // Homing bullets curve toward nearest enemy
+          if (bullet.btype === "homing") {
+            let nearestEnemy = null;
+            let minDist = Infinity;
+            for (const s of ships.values()) {
+              if (s.team === bullet.ownerTeam || !s.active) continue;
+              const dx = s.x - bullet.x;
+              const dy = s.y - bullet.y;
+              const dist = Math.sqrt(dx * dx + dy * dy);
+              if (dist < minDist) { minDist = dist; nearestEnemy = s; }
+            }
+            if (nearestEnemy) {
+              const dx = nearestEnemy.x - bullet.x;
+              const dy = nearestEnemy.y - bullet.y;
+              const len = Math.sqrt(dx * dx + dy * dy) || 1;
+              const turnRate = 3.2 * sec;
+              const curAngle = Math.atan2(bullet.vy, bullet.vx);
+              const targetAngle = Math.atan2(dy / len, dx / len);
+              let dAngle = targetAngle - curAngle;
+              while (dAngle > Math.PI) dAngle -= Math.PI * 2;
+              while (dAngle < -Math.PI) dAngle += Math.PI * 2;
+              const newAngle = curAngle + Math.sign(dAngle) * Math.min(Math.abs(dAngle), turnRate);
+              const spd = Math.sqrt(bullet.vx * bullet.vx + bullet.vy * bullet.vy);
+              bullet.vx = Math.cos(newAngle) * spd;
+              bullet.vy = Math.sin(newAngle) * spd;
+            }
+          }
+
+          // Bounce bullets reflect off canvas walls
+          if (bullet.btype === "bounce" && bullet.bounceLeft > 0) {
+            if (bullet.x <= BULLET_RADIUS && bullet.vx < 0) { bullet.vx = -bullet.vx; bullet.bounceLeft--; }
+            else if (bullet.x >= canvas.width - BULLET_RADIUS && bullet.vx > 0) { bullet.vx = -bullet.vx; bullet.bounceLeft--; }
+            if (bullet.y <= BULLET_RADIUS && bullet.vy < 0) { bullet.vy = -bullet.vy; bullet.bounceLeft--; }
+            else if (bullet.y >= canvas.height - BULLET_RADIUS && bullet.vy > 0) { bullet.vy = -bullet.vy; bullet.bounceLeft--; }
+          }
+
           if (
             bullet.x < -50 ||
             bullet.x > canvas.width + 50 ||
@@ -503,15 +656,35 @@
           }
 
           let hit = false;
+          const bRadius = bullet.btype === "mega" ? 18 : BULLET_RADIUS;
           for (const ship of ships.values()) {
             if (ship.team === bullet.ownerTeam || !ship.active) continue;
+            if (bullet.hitShips && bullet.hitShips.has(ship.id)) continue;
             const dx = bullet.x - ship.x;
             const dy = bullet.y - ship.y;
-            if (Math.sqrt(dx * dx + dy * dy) < SHIP_HIT_RADIUS + BULLET_RADIUS) {
+            if (Math.sqrt(dx * dx + dy * dy) < SHIP_HIT_RADIUS + bRadius) {
+              if (bullet.btype === "nova") {
+                const novaSpeed = getBulletSpeed();
+                for (let n = 0; n < 6; n++) {
+                  const na = (n / 6) * Math.PI * 2;
+                  bullets.push({
+                    x: bullet.x, y: bullet.y,
+                    vx: Math.cos(na) * novaSpeed * 0.65,
+                    vy: Math.sin(na) * novaSpeed * 0.65,
+                    color: bullet.color,
+                    ownerTeam: bullet.ownerTeam,
+                    btype: "nova_shard",
+                  });
+                }
+              }
               destroyShip(ship, bullet.color);
-              bullets.splice(i, 1);
-              hit = true;
-              break;
+              if (bullet.btype === "piercing") {
+                bullet.hitShips.add(ship.id);
+              } else {
+                bullets.splice(i, 1);
+                hit = true;
+                break;
+              }
             }
           }
           if (hit) continue;
@@ -533,6 +706,7 @@
         for (const ship of ships.values()) {
           if (ship.bonusType && now > ship.bonusExpiry) {
             ship.bonusType = null;
+            ship.ghostHits = 0;
           }
         }
 
@@ -564,6 +738,10 @@
             if (Math.sqrt(dx * dx + dy * dy) < SHIP_HIT_RADIUS + BONUS_PILL_RADIUS) {
               if (pill.type === "shield") {
                 ship.shield = true;
+              } else if (pill.type === "ghost") {
+                ship.bonusType = "ghost";
+                ship.bonusExpiry = now + BONUS_EFFECT_DURATION;
+                ship.ghostHits = 3;
               } else {
                 ship.bonusType = pill.type;
                 ship.bonusExpiry = now + BONUS_EFFECT_DURATION;
@@ -847,6 +1025,8 @@
           if (!ship.active) continue;
           ctx.save();
           if (ship.overheated) ctx.globalAlpha = 0.45;
+          else if (ship.bonusType === "stealth") ctx.globalAlpha = 0.18;
+          else if (ship.ghostHits > 0) ctx.globalAlpha = 0.42;
           drawShip(ship.x, ship.y, ship.color, teamDir(ship.team));
           ctx.restore();
 
@@ -898,12 +1078,47 @@
             ctx.fillRect(-20, -2.5, 40, 5);
             ctx.fillStyle = bullet.color;
             ctx.fillRect(-18, -1.5, 36, 3);
+          } else if (bullet.btype === "sniper") {
+            const angle = Math.atan2(bullet.vy, bullet.vx);
+            ctx.translate(bullet.x, bullet.y);
+            ctx.rotate(angle);
+            ctx.shadowBlur = 14;
+            ctx.fillStyle = "#ffffff";
+            ctx.fillRect(-30, -1.2, 60, 2.4);
+            ctx.fillStyle = bullet.color;
+            ctx.fillRect(-28, -0.6, 56, 1.2);
+          } else if (bullet.btype === "mega") {
+            ctx.shadowBlur = 28;
+            ctx.beginPath();
+            ctx.arc(bullet.x, bullet.y, 18, 0, Math.PI * 2);
+            ctx.fillStyle = bullet.color;
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(bullet.x, bullet.y, 9, 0, Math.PI * 2);
+            ctx.fillStyle = "#ffffffaa";
+            ctx.fill();
+          } else if (bullet.btype === "nova") {
+            ctx.shadowBlur = 24;
+            ctx.beginPath();
+            ctx.arc(bullet.x, bullet.y, BULLET_RADIUS * 1.5, 0, Math.PI * 2);
+            ctx.fillStyle = bullet.color;
+            ctx.fill();
+          } else if (bullet.btype === "nova_shard") {
+            ctx.shadowBlur = 8;
+            ctx.beginPath();
+            ctx.arc(bullet.x, bullet.y, BULLET_RADIUS * 0.5, 0, Math.PI * 2);
+            ctx.fillStyle = bullet.color;
+            ctx.fill();
           } else {
-            const r = bullet.btype === "ring" ? BULLET_RADIUS * 0.78 : BULLET_RADIUS;
+            const r =
+              bullet.btype === "ring" ? BULLET_RADIUS * 0.78 :
+              bullet.btype === "scatter" ? BULLET_RADIUS * 0.9 :
+              bullet.btype === "piercing" ? BULLET_RADIUS * 0.85 :
+              BULLET_RADIUS;
             ctx.beginPath();
             ctx.arc(bullet.x, bullet.y, r, 0, Math.PI * 2);
             ctx.fillStyle = bullet.color;
-            ctx.shadowBlur = 14;
+            ctx.shadowBlur = bullet.btype === "homing" ? 18 : 14;
             ctx.fill();
           }
           ctx.restore();
