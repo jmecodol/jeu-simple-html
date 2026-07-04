@@ -67,15 +67,17 @@
       const ctx = canvas.getContext("2d");
 
       const SHIP_SIZE = 36;
-      const BULLET_SPEED = 520;
+      const BASE_BULLET_SPEED = 520;
       const BULLET_RADIUS = 6;
       const SHIP_HIT_RADIUS = 34;
-      const FIRE_INTERVAL = 190;
+      const BASE_FIRE_INTERVAL = 190;
       const MAX_HEAT = 100;
       const SHOT_HEAT = 18;
       const COOL_RATE = 34;
       const HEAT_RECOVERY_LEVEL = 35;
       const WIN_MILESTONE = 5;
+      const LEVELS_TO_WIN = 3;
+      const LEVEL_END_DURATION = 2800;
       const TOP_COLOR = "#7bdff2";
       const BOTTOM_COLOR = "#ff9f68";
 
@@ -85,7 +87,16 @@
       const explosions = [];
       const pointerToShip = new Map();
 
+      // round kills (progress toward WIN_MILESTONE in the current level)
       let teamWins = { top: 0, bottom: 0 };
+      // levels (rounds) won by each team
+      let levelWins = { top: 0, bottom: 0 };
+      let currentLevel = 1;
+      // 'playing' | 'levelEnd' | 'matchEnd'
+      let gamePhase = "playing";
+      let levelEndWinner = null;
+      let levelEndTimer = 0;
+
       let lastTime = 0;
       let audioCtx = null;
       let flashTimeout = null;
@@ -132,6 +143,14 @@
         if (audioCtx && audioCtx.state === "suspended") {
           audioCtx.resume().catch(() => {});
         }
+      }
+
+      function getBulletSpeed() {
+        return BASE_BULLET_SPEED + (currentLevel - 1) * 40;
+      }
+
+      function getFireInterval() {
+        return Math.max(80, BASE_FIRE_INTERVAL - (currentLevel - 1) * 15);
       }
 
       function playExplosion() {
@@ -229,7 +248,13 @@
         ships.clear();
         pointerToShip.clear();
         teamWins = { top: 0, bottom: 0 };
+        levelWins = { top: 0, bottom: 0 };
+        currentLevel = 1;
+        gamePhase = "playing";
+        levelEndWinner = null;
+        levelEndTimer = 0;
         lastTime = 0;
+        document.getElementById("replayButton").style.display = "none";
         resize();
       }
 
@@ -259,6 +284,31 @@
             break;
           }
         }
+
+        // Check level win
+        if (teamWins[winningTeam] >= WIN_MILESTONE && gamePhase === "playing") {
+          levelWins[winningTeam] += 1;
+          levelEndWinner = winningTeam;
+          if (levelWins[winningTeam] >= LEVELS_TO_WIN) {
+            gamePhase = "matchEnd";
+            document.getElementById("replayButton").style.display = "block";
+          } else {
+            gamePhase = "levelEnd";
+            levelEndTimer = LEVEL_END_DURATION;
+          }
+        }
+      }
+
+      function startNextLevel() {
+        currentLevel += 1;
+        teamWins = { top: 0, bottom: 0 };
+        bullets.length = 0;
+        explosions.length = 0;
+        ships.clear();
+        pointerToShip.clear();
+        lastTime = 0;
+        gamePhase = "playing";
+        levelEndWinner = null;
       }
 
       function fireBullet(ship, now) {
@@ -266,7 +316,7 @@
 
         // Default direction: straight toward the enemy half
         let vx = 0;
-        let vy = teamDir(ship.team) * BULLET_SPEED;
+        let vy = teamDir(ship.team) * getBulletSpeed();
 
         // Aim at the nearest active enemy ship instead
         let minDist = Infinity;
@@ -278,8 +328,8 @@
           if (dist < minDist) {
             minDist = dist;
             const len = dist || 1;
-            vx = (dx / len) * BULLET_SPEED;
-            vy = (dy / len) * BULLET_SPEED;
+            vx = (dx / len) * getBulletSpeed();
+            vy = (dy / len) * getBulletSpeed();
           }
         }
 
@@ -298,6 +348,13 @@
       }
 
       function update(dt) {
+        if (gamePhase === "levelEnd") {
+          levelEndTimer -= dt;
+          if (levelEndTimer <= 0) startNextLevel();
+          return;
+        }
+        if (gamePhase === "matchEnd") return;
+
         const now = performance.now();
         const sec = dt / 1000;
 
@@ -305,7 +362,7 @@
           ship.heat = Math.max(0, ship.heat - COOL_RATE * sec);
           if (ship.overheated && ship.heat <= HEAT_RECOVERY_LEVEL) ship.overheated = false;
 
-          if (ship.active && !ship.overheated && now - ship.lastFire >= FIRE_INTERVAL) {
+          if (ship.active && !ship.overheated && now - ship.lastFire >= getFireInterval()) {
             fireBullet(ship, now);
           }
         }
@@ -398,8 +455,8 @@
 
       function drawWinBar(team, labelY, barY) {
         const wins = teamWins[team];
+        const lvWins = levelWins[team];
         const color = team === "top" ? TOP_COLOR : BOTTOM_COLOR;
-        const milestones = Math.floor(wins / WIN_MILESTONE);
         const progress = wins % WIN_MILESTONE;
         const barW = 120;
         const barH = 7;
@@ -407,13 +464,21 @@
 
         ctx.save();
 
-        // Text
+        // Level wins as filled circles
+        for (let m = 0; m < LEVELS_TO_WIN; m++) {
+          ctx.beginPath();
+          ctx.arc(x + m * 20 + 7, labelY - 10, 6, 0, Math.PI * 2);
+          ctx.fillStyle = m < lvWins ? color : "#ffffff22";
+          ctx.fill();
+        }
+
+        // Text: kills this round
         ctx.font = "bold 14px Arial";
         ctx.textAlign = "left";
         ctx.fillStyle = color;
         ctx.fillText(
           `Équipe ${team === "top" ? "haut" : "bas"} — victoires : ${wins}`,
-          x,
+          x + LEVELS_TO_WIN * 20 + 4,
           labelY
         );
 
@@ -431,13 +496,90 @@
           ctx.fillRect(x + (i / WIN_MILESTONE) * barW - 1, barY, 2, barH);
         }
 
-        // Milestone stars
-        for (let m = 0; m < milestones; m++) {
-          ctx.fillStyle = color;
-          ctx.font = "bold 12px Arial";
-          ctx.textAlign = "left";
-          ctx.fillText("★", x + m * 16, barY - 3);
-        }
+        ctx.restore();
+      }
+
+      function drawLevelEnd() {
+        const winColor = levelEndWinner === "top" ? TOP_COLOR : BOTTOM_COLOR;
+        const winLabel = levelEndWinner === "top" ? "HAUT" : "BAS";
+        const progress = Math.max(0, 1 - levelEndTimer / LEVEL_END_DURATION);
+
+        ctx.save();
+        ctx.globalAlpha = Math.min(1, progress * 4);
+
+        // Dark overlay
+        ctx.fillStyle = "rgba(0,0,0,0.55)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        const cx = canvas.width / 2;
+        const cy = canvas.height / 2;
+
+        // Level win announcement
+        ctx.textAlign = "center";
+        ctx.shadowColor = winColor;
+        ctx.shadowBlur = 28;
+        ctx.fillStyle = winColor;
+        ctx.font = "bold 38px Arial";
+        ctx.fillText(`ÉQUIPE ${winLabel} GAGNE !`, cx, cy - 28);
+
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "bold 22px Arial";
+        ctx.shadowBlur = 12;
+        ctx.fillText(`Niveau ${currentLevel} terminé`, cx, cy + 12);
+
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = "#f7e4d2cc";
+        ctx.font = "16px Arial";
+        ctx.fillText(`Niveau ${currentLevel + 1} dans…`, cx, cy + 46);
+
+        // Countdown bar
+        const barW = 200;
+        const barH = 8;
+        const barX = cx - barW / 2;
+        const barY = cy + 60;
+        ctx.fillStyle = "#ffffff22";
+        ctx.fillRect(barX, barY, barW, barH);
+        ctx.fillStyle = winColor;
+        ctx.fillRect(barX, barY, barW * (1 - levelEndTimer / LEVEL_END_DURATION), barH);
+
+        // Level wins summary
+        ctx.shadowBlur = 0;
+        ctx.font = "bold 15px Arial";
+        ctx.fillStyle = TOP_COLOR;
+        ctx.fillText(`Haut : ${levelWins.top} niveau(x)`, cx - 80, cy + 95);
+        ctx.fillStyle = BOTTOM_COLOR;
+        ctx.fillText(`Bas : ${levelWins.bottom} niveau(x)`, cx + 80, cy + 95);
+
+        ctx.restore();
+      }
+
+      function drawMatchEnd() {
+        const winColor = levelEndWinner === "top" ? TOP_COLOR : BOTTOM_COLOR;
+        const winLabel = levelEndWinner === "top" ? "HAUT" : "BAS";
+
+        ctx.save();
+        ctx.fillStyle = "rgba(0,0,0,0.7)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        const cx = canvas.width / 2;
+        const cy = canvas.height / 2 - 40;
+
+        ctx.textAlign = "center";
+        ctx.shadowColor = winColor;
+        ctx.shadowBlur = 36;
+        ctx.fillStyle = winColor;
+        ctx.font = "bold 44px Arial";
+        ctx.fillText(`VICTOIRE — ÉQUIPE ${winLabel}`, cx, cy);
+
+        ctx.shadowBlur = 14;
+        ctx.fillStyle = "#fff2d6";
+        ctx.font = "bold 22px Arial";
+        ctx.fillText(`${LEVELS_TO_WIN} niveaux remportés !`, cx, cy + 44);
+
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = "#f7e4d2aa";
+        ctx.font = "16px Arial";
+        ctx.fillText(`Haut : ${levelWins.top} · Bas : ${levelWins.bottom}`, cx, cy + 78);
 
         ctx.restore();
       }
@@ -445,6 +587,14 @@
       function drawHud() {
         drawWinBar("top", 24, 30);
         drawWinBar("bottom", canvas.height - 14, canvas.height - 22);
+
+        // Current level indicator
+        ctx.save();
+        ctx.textAlign = "right";
+        ctx.fillStyle = "#f7e4d2cc";
+        ctx.font = "bold 14px Arial";
+        ctx.fillText(`Niveau ${currentLevel}`, canvas.width - 18, 24);
+        ctx.restore();
 
         // Center dividing line (decorative — ships may cross it freely)
         ctx.save();
@@ -519,6 +669,9 @@
         }
 
         drawHud();
+
+        if (gamePhase === "levelEnd") drawLevelEnd();
+        if (gamePhase === "matchEnd") drawMatchEnd();
       }
 
       function gameLoop(timestamp) {
@@ -532,6 +685,7 @@
       canvas.addEventListener("pointerdown", (e) => {
         e.preventDefault();
         unlockAudio();
+        if (gamePhase !== "playing") return;
         const rect = canvas.getBoundingClientRect();
         const scaleX = canvas.width / rect.width;
         const scaleY = canvas.height / rect.height;
@@ -575,6 +729,10 @@
       canvas.addEventListener("pointercancel", releasePointer);
 
       window.addEventListener("resize", resize);
+
+      document.getElementById("replayButton").addEventListener("click", () => {
+        resetGame();
+      });
 
       resetGame();
       requestAnimationFrame(gameLoop);
