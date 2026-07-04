@@ -5,27 +5,124 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Jeu Simple</title>
     <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
       body {
-        background-color: #1a1a2e;
-        color: #e0e0e0;
+        background-color: #2b1a0e;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        height: 100dvh;
+        overflow: hidden;
         font-family: Arial, sans-serif;
       }
       h1 {
-        background-color: #16213e;
-        color: #0f3460;
-        padding: 16px;
-        border-radius: 8px;
+        color: #d4a07a;
+        font-size: 1.2rem;
+        padding: 8px 16px;
+        flex-shrink: 0;
       }
-      p {
-        background-color: #0f3460;
-        color: #e0e0e0;
-        padding: 12px;
-        border-radius: 6px;
+      canvas {
+        display: block;
+        width: 100%;
+        flex: 1;
+        touch-action: none;
+        cursor: crosshair;
       }
     </style>
   </head>
   <body>
-    <h1>Jeu Simple 222</h1>
-    <p>Bienvenue sur la page du jeu simple !</p>
+    <h1>Jeu Simple</h1>
+    <canvas id="gameCanvas"></canvas>
+    <script>
+      const canvas = document.getElementById("gameCanvas");
+      const ctx = canvas.getContext("2d");
+
+      const pastelColors = [
+        "#FFB3C6", "#FFD6E0", "#FFC8A2", "#FFE0B2",
+        "#D4F1C4", "#B5EAD7", "#C7CEEA", "#E2CCFF",
+        "#FFDAC1", "#FF9AA2", "#B5D5F5", "#FFEAA7",
+      ];
+
+      // Active bubbles keyed by pointer/touch identifier
+      const bubbles = new Map();
+
+      function resize() {
+        const rect = canvas.getBoundingClientRect();
+        canvas.width = rect.width;
+        canvas.height = rect.height;
+        draw();
+      }
+
+      function pickColor(id) {
+        return pastelColors[Math.abs(id) % pastelColors.length];
+      }
+
+      function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // Dark brown background
+        ctx.fillStyle = "#3b1f0a";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        for (const bubble of bubbles.values()) {
+          const gradient = ctx.createRadialGradient(
+            bubble.x - bubble.r * 0.3, bubble.y - bubble.r * 0.3, bubble.r * 0.1,
+            bubble.x, bubble.y, bubble.r
+          );
+          gradient.addColorStop(0, "#ffffff");
+          gradient.addColorStop(0.3, bubble.color);
+          gradient.addColorStop(1, bubble.color + "88");
+          ctx.beginPath();
+          ctx.arc(bubble.x, bubble.y, bubble.r, 0, Math.PI * 2);
+          ctx.fillStyle = gradient;
+          ctx.fill();
+        }
+      }
+
+      // --- Pointer Events (covers mouse + touch on modern browsers) ---
+      canvas.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        bubbles.set(e.pointerId, {
+          x: (e.clientX - rect.left) * scaleX,
+          y: (e.clientY - rect.top) * scaleY,
+          r: 40,
+          color: pickColor(e.pointerId),
+        });
+        canvas.setPointerCapture(e.pointerId);
+        draw();
+      });
+
+      canvas.addEventListener("pointermove", (e) => {
+        e.preventDefault();
+        if (!bubbles.has(e.pointerId)) return;
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        const b = bubbles.get(e.pointerId);
+        b.x = (e.clientX - rect.left) * scaleX;
+        b.y = (e.clientY - rect.top) * scaleY;
+        draw();
+      });
+
+      canvas.addEventListener("pointerup", (e) => {
+        e.preventDefault();
+        bubbles.delete(e.pointerId);
+        draw();
+      });
+
+      canvas.addEventListener("pointercancel", (e) => {
+        bubbles.delete(e.pointerId);
+        draw();
+      });
+
+      window.addEventListener("resize", resize);
+      resize();
+    </script>
   </body>
 </html>
