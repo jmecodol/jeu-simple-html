@@ -81,10 +81,35 @@
       const TOP_COLOR = "#7bdff2";
       const BOTTOM_COLOR = "#ff9f68";
 
+      // Bonus system
+      const BONUS_PILL_RADIUS = 14;
+      const BONUS_PILL_SPEED = 65;
+      const BONUS_PILL_LIFE = 9000;
+      const BONUS_EFFECT_DURATION = 6000;
+      const MAX_BONUS_PILLS = 3;
+      const BONUS_SPAWN_INTERVAL = 5500;
+      const BONUS_TYPES = ["laser", "ring", "rapid", "triple", "shield"];
+      const BONUS_COLORS = {
+        laser: "#00eeff",
+        ring: "#cc44ff",
+        rapid: "#ffdd00",
+        triple: "#44ff88",
+        shield: "#4499ff",
+      };
+      const BONUS_ICONS = {
+        laser: "⚡",
+        ring: "◎",
+        rapid: "»",
+        triple: "≡",
+        shield: "⬡",
+      };
+
       // ships: Map<shipId, ship>  — one entry per active finger
       const ships = new Map();
       const bullets = [];
       const explosions = [];
+      const bonusPills = [];
+      let bonusSpawnTimer = BONUS_SPAWN_INTERVAL;
       const pointerToShip = new Map();
 
       // round kills (progress toward WIN_MILESTONE in the current level)
@@ -151,6 +176,48 @@
 
       function getFireInterval() {
         return Math.max(80, BASE_FIRE_INTERVAL - (currentLevel - 1) * 15);
+      }
+
+      function getShipFireInterval(ship) {
+        const base = getFireInterval();
+        return ship.bonusType === "rapid" ? base * 0.42 : base;
+      }
+
+      function playBonusPickup() {
+        if (!audioUnlocked) return;
+        try {
+          const ac = getAudioCtx();
+          const osc = ac.createOscillator();
+          const gain = ac.createGain();
+          osc.type = "sine";
+          osc.frequency.setValueAtTime(620, ac.currentTime);
+          osc.frequency.exponentialRampToValueAtTime(1500, ac.currentTime + 0.2);
+          gain.gain.setValueAtTime(0.28, ac.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.25);
+          osc.connect(gain);
+          gain.connect(ac.destination);
+          osc.start();
+          osc.stop(ac.currentTime + 0.25);
+        } catch (e) {}
+      }
+
+      function spawnBonusPill() {
+        if (bonusPills.length >= MAX_BONUS_PILLS) return;
+        const type = BONUS_TYPES[Math.floor(Math.random() * BONUS_TYPES.length)];
+        const margin = BONUS_PILL_RADIUS + 24;
+        const x = margin + Math.random() * (canvas.width - margin * 2);
+        const y = margin + Math.random() * (canvas.height - margin * 2);
+        const angle = Math.random() * Math.PI * 2;
+        bonusPills.push({
+          x,
+          y,
+          vx: Math.cos(angle) * BONUS_PILL_SPEED,
+          vy: Math.sin(angle) * BONUS_PILL_SPEED,
+          type,
+          color: BONUS_COLORS[type],
+          life: BONUS_PILL_LIFE,
+          pulse: Math.random() * Math.PI * 2,
+        });
       }
 
       function playExplosion() {
@@ -221,6 +288,9 @@
           lastFire: 0,
           active: true,
           overheated: false,
+          bonusType: null,
+          bonusExpiry: 0,
+          shield: false,
         };
       }
 
@@ -245,6 +315,8 @@
       function resetGame() {
         bullets.length = 0;
         explosions.length = 0;
+        bonusPills.length = 0;
+        bonusSpawnTimer = BONUS_SPAWN_INTERVAL;
         ships.clear();
         pointerToShip.clear();
         teamWins = { top: 0, bottom: 0 };
@@ -269,6 +341,14 @@
       }
 
       function destroyShip(ship, bulletColor) {
+        // Shield absorbs the hit
+        if (ship.shield) {
+          ship.shield = false;
+          ship.bonusType = null;
+          createExplosion(ship.x, ship.y, "#4499ff");
+          return;
+        }
+
         createExplosion(ship.x, ship.y, ship.color);
         playExplosion();
         triggerFlash(bulletColor, ship.color);
@@ -304,6 +384,8 @@
         teamWins = { top: 0, bottom: 0 };
         bullets.length = 0;
         explosions.length = 0;
+        bonusPills.length = 0;
+        bonusSpawnTimer = BONUS_SPAWN_INTERVAL;
         ships.clear();
         pointerToShip.clear();
         lastTime = 0;
@@ -314,11 +396,12 @@
       function fireBullet(ship, now) {
         ship.lastFire = now;
 
-        // Default direction: straight toward the enemy half
-        let vx = 0;
-        let vy = teamDir(ship.team) * getBulletSpeed();
+        const speed = getBulletSpeed();
+        const type = ship.bonusType;
 
-        // Aim at the nearest active enemy ship instead
+        // Aim toward the nearest active enemy ship
+        let aimVx = 0;
+        let aimVy = teamDir(ship.team) * speed;
         let minDist = Infinity;
         for (const other of ships.values()) {
           if (other.team === ship.team || !other.active) continue;
@@ -328,19 +411,56 @@
           if (dist < minDist) {
             minDist = dist;
             const len = dist || 1;
-            vx = (dx / len) * getBulletSpeed();
-            vy = (dy / len) * getBulletSpeed();
+            aimVx = (dx / len) * speed;
+            aimVy = (dy / len) * speed;
           }
         }
 
-        bullets.push({
-          x: ship.x,
-          y: ship.y,
-          vx,
-          vy,
-          color: ship.color,
-          ownerTeam: ship.team,
-        });
+        if (type === "ring") {
+          // Fire 8 bullets in all directions
+          for (let i = 0; i < 8; i++) {
+            const a = (i / 8) * Math.PI * 2;
+            bullets.push({
+              x: ship.x, y: ship.y,
+              vx: Math.cos(a) * speed * 0.85,
+              vy: Math.sin(a) * speed * 0.85,
+              color: ship.color,
+              ownerTeam: ship.team,
+              btype: "ring",
+            });
+          }
+        } else if (type === "laser") {
+          bullets.push({
+            x: ship.x, y: ship.y,
+            vx: aimVx * 1.65,
+            vy: aimVy * 1.65,
+            color: ship.color,
+            ownerTeam: ship.team,
+            btype: "laser",
+          });
+        } else if (type === "triple") {
+          const aimAngle = Math.atan2(aimVy, aimVx);
+          for (const offset of [-0.32, 0, 0.32]) {
+            const a = aimAngle + offset;
+            bullets.push({
+              x: ship.x, y: ship.y,
+              vx: Math.cos(a) * speed,
+              vy: Math.sin(a) * speed,
+              color: ship.color,
+              ownerTeam: ship.team,
+              btype: "triple",
+            });
+          }
+        } else {
+          // normal or rapid (rapid only affects interval)
+          bullets.push({
+            x: ship.x, y: ship.y,
+            vx: aimVx, vy: aimVy,
+            color: ship.color,
+            ownerTeam: ship.team,
+            btype: "normal",
+          });
+        }
 
         ship.heat = Math.min(MAX_HEAT, ship.heat + SHOT_HEAT);
         if (ship.heat >= MAX_HEAT) ship.overheated = true;
@@ -362,7 +482,7 @@
           ship.heat = Math.max(0, ship.heat - COOL_RATE * sec);
           if (ship.overheated && ship.heat <= HEAT_RECOVERY_LEVEL) ship.overheated = false;
 
-          if (ship.active && !ship.overheated && now - ship.lastFire >= getFireInterval()) {
+          if (ship.active && !ship.overheated && now - ship.lastFire >= getShipFireInterval(ship)) {
             fireBullet(ship, now);
           }
         }
@@ -407,6 +527,54 @@
             if (p.life > 0) alive = true;
           }
           if (!alive) explosions.splice(e, 1);
+        }
+
+        // Expire active bonuses on ships
+        for (const ship of ships.values()) {
+          if (ship.bonusType && now > ship.bonusExpiry) {
+            ship.bonusType = null;
+          }
+        }
+
+        // Spawn bonus pills
+        bonusSpawnTimer -= dt;
+        if (bonusSpawnTimer <= 0) {
+          spawnBonusPill();
+          bonusSpawnTimer = BONUS_SPAWN_INTERVAL;
+        }
+
+        // Update bonus pills (move, bounce, expire, collect)
+        for (let i = bonusPills.length - 1; i >= 0; i--) {
+          const pill = bonusPills[i];
+          pill.life -= dt;
+          pill.pulse += dt * 0.0045;
+          pill.x += pill.vx * sec;
+          pill.y += pill.vy * sec;
+          if (pill.x < BONUS_PILL_RADIUS) { pill.x = BONUS_PILL_RADIUS; pill.vx = Math.abs(pill.vx); }
+          if (pill.x > canvas.width - BONUS_PILL_RADIUS) { pill.x = canvas.width - BONUS_PILL_RADIUS; pill.vx = -Math.abs(pill.vx); }
+          if (pill.y < BONUS_PILL_RADIUS) { pill.y = BONUS_PILL_RADIUS; pill.vy = Math.abs(pill.vy); }
+          if (pill.y > canvas.height - BONUS_PILL_RADIUS) { pill.y = canvas.height - BONUS_PILL_RADIUS; pill.vy = -Math.abs(pill.vy); }
+          if (pill.life <= 0) { bonusPills.splice(i, 1); continue; }
+          // Ship collision
+          let collected = false;
+          for (const ship of ships.values()) {
+            if (!ship.active) continue;
+            const dx = pill.x - ship.x;
+            const dy = pill.y - ship.y;
+            if (Math.sqrt(dx * dx + dy * dy) < SHIP_HIT_RADIUS + BONUS_PILL_RADIUS) {
+              if (pill.type === "shield") {
+                ship.shield = true;
+              } else {
+                ship.bonusType = pill.type;
+                ship.bonusExpiry = now + BONUS_EFFECT_DURATION;
+              }
+              bonusPills.splice(i, 1);
+              playBonusPickup();
+              collected = true;
+              break;
+            }
+          }
+          if (collected) continue;
         }
       }
 
@@ -619,6 +787,47 @@
         ctx.restore();
       }
 
+      function drawBonusPills() {
+        for (const pill of bonusPills) {
+          const alpha = pill.life < 2000 ? pill.life / 2000 : 1;
+          const pulse = 1 + 0.18 * Math.sin(pill.pulse);
+          const r = BONUS_PILL_RADIUS * pulse;
+
+          ctx.save();
+          ctx.globalAlpha = alpha;
+          ctx.shadowColor = pill.color;
+          ctx.shadowBlur = 18;
+
+          // Outer spinning ring
+          ctx.beginPath();
+          ctx.arc(pill.x, pill.y, r, 0, Math.PI * 2);
+          ctx.strokeStyle = pill.color;
+          ctx.lineWidth = 2.5;
+          ctx.stroke();
+
+          // Inner glow fill
+          const grad = ctx.createRadialGradient(pill.x, pill.y, 0, pill.x, pill.y, r * 0.7);
+          grad.addColorStop(0, pill.color + "88");
+          grad.addColorStop(1, pill.color + "00");
+          ctx.beginPath();
+          ctx.arc(pill.x, pill.y, r * 0.7, 0, Math.PI * 2);
+          ctx.fillStyle = grad;
+          ctx.fill();
+
+          // Icon
+          ctx.shadowBlur = 0;
+          ctx.globalAlpha = alpha;
+          ctx.fillStyle = "#ffffff";
+          ctx.font = `bold ${Math.round(r * 0.85)}px Arial`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(BONUS_ICONS[pill.type], pill.x, pill.y);
+          ctx.textBaseline = "alphabetic";
+
+          ctx.restore();
+        }
+      }
+
       function draw() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -640,16 +849,63 @@
           if (ship.overheated) ctx.globalAlpha = 0.45;
           drawShip(ship.x, ship.y, ship.color, teamDir(ship.team));
           ctx.restore();
+
+          // Shield bubble
+          if (ship.shield) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(ship.x, ship.y, SHIP_SIZE * 1.45, 0, Math.PI * 2);
+            ctx.strokeStyle = "#4499ff";
+            ctx.lineWidth = 2.5;
+            ctx.shadowColor = "#4499ff";
+            ctx.shadowBlur = 14;
+            ctx.globalAlpha = 0.8;
+            ctx.stroke();
+            ctx.restore();
+          }
+
+          // Active bonus timer arc
+          if (ship.bonusType) {
+            const remaining = Math.max(0, ship.bonusExpiry - performance.now()) / BONUS_EFFECT_DURATION;
+            const iy = ship.team === "top" ? ship.y - SHIP_SIZE * 1.35 : ship.y + SHIP_SIZE * 1.35;
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(ship.x, iy, 9, -Math.PI / 2, -Math.PI / 2 + remaining * Math.PI * 2);
+            ctx.strokeStyle = BONUS_COLORS[ship.bonusType];
+            ctx.lineWidth = 3;
+            ctx.shadowColor = BONUS_COLORS[ship.bonusType];
+            ctx.shadowBlur = 8;
+            ctx.stroke();
+            ctx.fillStyle = BONUS_COLORS[ship.bonusType];
+            ctx.font = "bold 9px Arial";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText(BONUS_ICONS[ship.bonusType], ship.x, iy);
+            ctx.textBaseline = "alphabetic";
+            ctx.restore();
+          }
         }
 
         for (const bullet of bullets) {
           ctx.save();
-          ctx.beginPath();
-          ctx.arc(bullet.x, bullet.y, BULLET_RADIUS, 0, Math.PI * 2);
-          ctx.fillStyle = bullet.color;
           ctx.shadowColor = bullet.color;
-          ctx.shadowBlur = 14;
-          ctx.fill();
+          if (bullet.btype === "laser") {
+            const angle = Math.atan2(bullet.vy, bullet.vx);
+            ctx.translate(bullet.x, bullet.y);
+            ctx.rotate(angle);
+            ctx.shadowBlur = 22;
+            ctx.fillStyle = "#ffffff";
+            ctx.fillRect(-20, -2.5, 40, 5);
+            ctx.fillStyle = bullet.color;
+            ctx.fillRect(-18, -1.5, 36, 3);
+          } else {
+            const r = bullet.btype === "ring" ? BULLET_RADIUS * 0.78 : BULLET_RADIUS;
+            ctx.beginPath();
+            ctx.arc(bullet.x, bullet.y, r, 0, Math.PI * 2);
+            ctx.fillStyle = bullet.color;
+            ctx.shadowBlur = 14;
+            ctx.fill();
+          }
           ctx.restore();
         }
 
@@ -669,6 +925,7 @@
         }
 
         drawHud();
+        drawBonusPills();
 
         if (gamePhase === "levelEnd") drawLevelEnd();
         if (gamePhase === "matchEnd") drawMatchEnd();
