@@ -65,35 +65,27 @@
     <script>
       const canvas = document.getElementById("gameCanvas");
       const ctx = canvas.getContext("2d");
-      const replayButton = document.getElementById("replayButton");
 
       const SHIP_SIZE = 36;
       const BULLET_SPEED = 520;
       const BULLET_RADIUS = 6;
       const SHIP_HIT_RADIUS = 34;
       const FIRE_INTERVAL = 190;
-      const MOVE_SPEED = 360;
       const MAX_HEAT = 100;
       const SHOT_HEAT = 18;
       const COOL_RATE = 34;
       const HEAT_RECOVERY_LEVEL = 35;
-      const MAX_LOSSES = 5;
-      const RESPAWN_DELAY = 1200;
+      const WIN_MILESTONE = 5;
       const TOP_COLOR = "#7bdff2";
       const BOTTOM_COLOR = "#ff9f68";
-      const TOP_KEY_ID = "key_top";
-      const BOTTOM_KEY_ID = "key_bottom";
 
-      // ships: Map<shipId, ship>  — one entry per active finger + 2 keyboard ships
+      // ships: Map<shipId, ship>  — one entry per active finger
       const ships = new Map();
       const bullets = [];
       const explosions = [];
       const pointerToShip = new Map();
-      const keyState = new Set();
 
-      let teamLosses = { top: 0, bottom: 0 };
-      let gameOver = false;
-      let winnerText = "";
+      let teamWins = { top: 0, bottom: 0 };
       let lastTime = 0;
       let audioCtx = null;
       let flashTimeout = null;
@@ -199,7 +191,7 @@
         return Math.min(Math.max(y, SHIP_SIZE + 12), canvas.height - SHIP_SIZE - 12);
       }
 
-      function createShip(id, team, x, y, isKeyboard) {
+      function createShip(id, team, x, y) {
         return {
           id,
           team,
@@ -210,11 +202,6 @@
           lastFire: 0,
           active: true,
           overheated: false,
-          respawnAt: 0,
-          isKeyboard: !!isKeyboard,
-          // Last known position (finger or keyboard) used when respawning
-          targetX: x,
-          targetY: y,
         };
       }
 
@@ -236,30 +223,14 @@
         explosions.push({ particles });
       }
 
-      function initKeyboardShips() {
-        const now = performance.now();
-        const kTop = createShip(TOP_KEY_ID, "top", canvas.width / 2, canvas.height * 0.14, true);
-        kTop.lastFire = now;
-        ships.set(TOP_KEY_ID, kTop);
-
-        const kBottom = createShip(BOTTOM_KEY_ID, "bottom", canvas.width / 2, canvas.height * 0.86, true);
-        kBottom.lastFire = now;
-        ships.set(BOTTOM_KEY_ID, kBottom);
-      }
-
       function resetGame() {
         bullets.length = 0;
         explosions.length = 0;
         ships.clear();
         pointerToShip.clear();
-        keyState.clear();
-        teamLosses = { top: 0, bottom: 0 };
-        gameOver = false;
-        winnerText = "";
+        teamWins = { top: 0, bottom: 0 };
         lastTime = 0;
-        replayButton.style.display = "none";
         resize();
-        initKeyboardShips();
       }
 
       function resize() {
@@ -272,36 +243,21 @@
         }
       }
 
-      function endGame(loserTeam) {
-        gameOver = true;
-        winnerText =
-          loserTeam === "top" ? "Équipe du bas gagne !" : "Équipe du haut gagne !";
-        replayButton.style.display = "block";
-      }
-
-      function destroyShip(ship, bulletColor, now) {
-        ship.active = false;
-        ship.heat = 0;
-        ship.overheated = false;
+      function destroyShip(ship, bulletColor) {
         createExplosion(ship.x, ship.y, ship.color);
         playExplosion();
         triggerFlash(bulletColor, ship.color);
 
-        teamLosses[ship.team] += 1;
-        if (teamLosses[ship.team] >= MAX_LOSSES) {
-          endGame(ship.team);
-          return;
-        }
+        const winningTeam = ship.team === "top" ? "bottom" : "top";
+        teamWins[winningTeam] += 1;
 
-        ship.respawnAt = now + RESPAWN_DELAY;
-        if (ship.isKeyboard) {
-          // Keyboard ships respawn at their default starting position
-          ship.x = canvas.width / 2;
-          ship.y = ship.team === "top" ? canvas.height * 0.14 : canvas.height * 0.86;
-        } else {
-          // Touch ships respawn at the last known finger position
-          ship.x = clampX(ship.targetX);
-          ship.y = clampY(ship.targetY);
+        // Remove ship immediately
+        ships.delete(ship.id);
+        for (const [ptId, shipId] of pointerToShip.entries()) {
+          if (shipId === ship.id) {
+            pointerToShip.delete(ptId);
+            break;
+          }
         }
       }
 
@@ -341,59 +297,15 @@
         playShot();
       }
 
-      function handleKeyboardMovement(dt) {
-        const sec = dt / 1000;
-        const kTop = ships.get(TOP_KEY_ID);
-        const kBottom = ships.get(BOTTOM_KEY_ID);
-
-        if (kTop && kTop.active) {
-          const left = keyState.has("a") || keyState.has("q");
-          const right = keyState.has("d");
-          const up = keyState.has("w") || keyState.has("z");
-          const down = keyState.has("s");
-          if (left && !right) kTop.x -= MOVE_SPEED * sec;
-          if (right && !left) kTop.x += MOVE_SPEED * sec;
-          if (up && !down) kTop.y -= MOVE_SPEED * sec;
-          if (down && !up) kTop.y += MOVE_SPEED * sec;
-          kTop.x = clampX(kTop.x);
-          kTop.y = clampY(kTop.y);
-        }
-
-        if (kBottom && kBottom.active) {
-          const left = keyState.has("arrowleft");
-          const right = keyState.has("arrowright");
-          const up = keyState.has("arrowup");
-          const down = keyState.has("arrowdown");
-          if (left && !right) kBottom.x -= MOVE_SPEED * sec;
-          if (right && !left) kBottom.x += MOVE_SPEED * sec;
-          if (up && !down) kBottom.y -= MOVE_SPEED * sec;
-          if (down && !up) kBottom.y += MOVE_SPEED * sec;
-          kBottom.x = clampX(kBottom.x);
-          kBottom.y = clampY(kBottom.y);
-        }
-      }
-
       function update(dt) {
         const now = performance.now();
         const sec = dt / 1000;
-
-        handleKeyboardMovement(dt);
 
         for (const ship of ships.values()) {
           ship.heat = Math.max(0, ship.heat - COOL_RATE * sec);
           if (ship.overheated && ship.heat <= HEAT_RECOVERY_LEVEL) ship.overheated = false;
 
-          if (!ship.active && !gameOver && now >= ship.respawnAt) {
-            ship.active = true;
-            ship.lastFire = now;
-            // Touch ships reappear at the current finger position
-            if (!ship.isKeyboard) {
-              ship.x = clampX(ship.targetX);
-              ship.y = clampY(ship.targetY);
-            }
-          }
-
-          if (!gameOver && ship.active && !ship.overheated && now - ship.lastFire >= FIRE_INTERVAL) {
+          if (ship.active && !ship.overheated && now - ship.lastFire >= FIRE_INTERVAL) {
             fireBullet(ship, now);
           }
         }
@@ -419,7 +331,7 @@
             const dx = bullet.x - ship.x;
             const dy = bullet.y - ship.y;
             if (Math.sqrt(dx * dx + dy * dy) < SHIP_HIT_RADIUS + BULLET_RADIUS) {
-              destroyShip(ship, bullet.color, now);
+              destroyShip(ship, bullet.color);
               bullets.splice(i, 1);
               hit = true;
               break;
@@ -484,37 +396,55 @@
         ctx.restore();
       }
 
-      function drawTeamLossIcons(team, anchorY) {
-        const iconSize = 10;
-        const gap = 28;
-        const startX = canvas.width - 26;
-        const losses = teamLosses[team];
-        for (let i = 0; i < losses; i++) {
-          const y = anchorY + (team === "top" ? i * gap : -i * gap);
-          drawShip(startX, y, team === "top" ? TOP_COLOR : BOTTOM_COLOR, teamDir(team), true, iconSize);
+      function drawWinBar(team, labelY, barY) {
+        const wins = teamWins[team];
+        const color = team === "top" ? TOP_COLOR : BOTTOM_COLOR;
+        const milestones = Math.floor(wins / WIN_MILESTONE);
+        const progress = wins % WIN_MILESTONE;
+        const barW = 120;
+        const barH = 7;
+        const x = 18;
+
+        ctx.save();
+
+        // Text
+        ctx.font = "bold 14px Arial";
+        ctx.textAlign = "left";
+        ctx.fillStyle = color;
+        ctx.fillText(
+          `Équipe ${team === "top" ? "haut" : "bas"} — victoires : ${wins}`,
+          x,
+          labelY
+        );
+
+        // Progress bar background
+        ctx.fillStyle = "#ffffff22";
+        ctx.fillRect(x, barY, barW, barH);
+
+        // Progress bar fill
+        ctx.fillStyle = color;
+        ctx.fillRect(x, barY, (progress / WIN_MILESTONE) * barW, barH);
+
+        // Divider ticks
+        ctx.fillStyle = "#000000aa";
+        for (let i = 1; i < WIN_MILESTONE; i++) {
+          ctx.fillRect(x + (i / WIN_MILESTONE) * barW - 1, barY, 2, barH);
         }
+
+        // Milestone stars
+        for (let m = 0; m < milestones; m++) {
+          ctx.fillStyle = color;
+          ctx.font = "bold 12px Arial";
+          ctx.textAlign = "left";
+          ctx.fillText("★", x + m * 16, barY - 3);
+        }
+
+        ctx.restore();
       }
 
       function drawHud() {
-        ctx.save();
-        ctx.font = "bold 14px Arial";
-        ctx.textAlign = "left";
-        ctx.fillStyle = TOP_COLOR;
-        ctx.fillText(
-          `Équipe haut — vies perdues : ${teamLosses.top}/${MAX_LOSSES}`,
-          18,
-          24
-        );
-        ctx.fillStyle = BOTTOM_COLOR;
-        ctx.fillText(
-          `Équipe bas — vies perdues : ${teamLosses.bottom}/${MAX_LOSSES}`,
-          18,
-          canvas.height - 24
-        );
-        ctx.restore();
-
-        drawTeamLossIcons("top", 36);
-        drawTeamLossIcons("bottom", canvas.height - 36);
+        drawWinBar("top", 24, 30);
+        drawWinBar("bottom", canvas.height - 14, canvas.height - 22);
 
         // Center dividing line (decorative — ships may cross it freely)
         ctx.save();
@@ -532,29 +462,9 @@
         ctx.font = "12px Arial";
         ctx.textAlign = "center";
         ctx.fillText(
-          "Haut : Q/A ← D → Z/W ↑ S ↓   |   Bas : ← → ↑ ↓   |   Toucher l'écran pour invoquer des vaisseaux",
+          "Toucher l'écran pour invoquer des vaisseaux — haut contre bas",
           canvas.width / 2,
           canvas.height / 2 + 18
-        );
-        ctx.restore();
-      }
-
-      function drawGameOverOverlay() {
-        if (!gameOver) return;
-        ctx.save();
-        ctx.fillStyle = "#00000088";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = "#fff2d6";
-        ctx.textAlign = "center";
-        ctx.font = "bold 34px Arial";
-        ctx.fillText("Partie terminée", canvas.width / 2, canvas.height / 2 - 42);
-        ctx.font = "bold 26px Arial";
-        ctx.fillText(winnerText, canvas.width / 2, canvas.height / 2 - 4);
-        ctx.font = "18px Arial";
-        ctx.fillText(
-          `${MAX_LOSSES} vies perdues : la guerre s'arrête.`,
-          canvas.width / 2,
-          canvas.height / 2 + 30
         );
         ctx.restore();
       }
@@ -609,7 +519,6 @@
         }
 
         drawHud();
-        drawGameOverOverlay();
       }
 
       function gameLoop(timestamp) {
@@ -623,7 +532,6 @@
       canvas.addEventListener("pointerdown", (e) => {
         e.preventDefault();
         unlockAudio();
-        if (gameOver) return;
         const rect = canvas.getBoundingClientRect();
         const scaleX = canvas.width / rect.width;
         const scaleY = canvas.height / rect.height;
@@ -633,7 +541,7 @@
         const team = y < canvas.height / 2 ? "top" : "bottom";
         const shipId = `touch_${e.pointerId}`;
         if (ships.has(shipId)) return;
-        const ship = createShip(shipId, team, x, y, false);
+        const ship = createShip(shipId, team, x, y);
         ship.lastFire = performance.now();
         ships.set(shipId, ship);
         pointerToShip.set(e.pointerId, shipId);
@@ -651,13 +559,8 @@
         const scaleY = canvas.height / rect.height;
         const x = (e.clientX - rect.left) * scaleX;
         const y = (e.clientY - rect.top) * scaleY;
-        // Always update target so respawn lands at current finger position
-        ship.targetX = x;
-        ship.targetY = y;
-        if (ship.active) {
-          ship.x = clampX(x);
-          ship.y = clampY(y);
-        }
+        ship.x = clampX(x);
+        ship.y = clampY(y);
       });
 
       function releasePointer(e) {
@@ -670,19 +573,6 @@
 
       canvas.addEventListener("pointerup", releasePointer);
       canvas.addEventListener("pointercancel", releasePointer);
-
-      window.addEventListener("keydown", (e) => {
-        unlockAudio();
-        keyState.add(e.key.toLowerCase());
-      });
-
-      window.addEventListener("keyup", (e) => {
-        keyState.delete(e.key.toLowerCase());
-      });
-
-      replayButton.addEventListener("click", () => {
-        resetGame();
-      });
 
       window.addEventListener("resize", resize);
 
