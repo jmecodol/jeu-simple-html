@@ -50,6 +50,92 @@
       // Active bubbles keyed by pointer/touch identifier
       const bubbles = new Map();
 
+      // Track pairs currently touching (to fire thunder only on new contact)
+      const touchingPairs = new Set();
+
+      // --- Thunder sound via Web Audio API ---
+      let audioCtx = null;
+      function getAudioCtx() {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        return audioCtx;
+      }
+
+      function playThunder() {
+        try {
+          const ac = getAudioCtx();
+          const bufferSize = ac.sampleRate * 1.5;
+          const buffer = ac.createBuffer(1, bufferSize, ac.sampleRate);
+          const data = buffer.getChannelData(0);
+          // White noise shaped into a thunder rumble
+          for (let i = 0; i < bufferSize; i++) {
+            data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufferSize, 0.4);
+          }
+          const source = ac.createBufferSource();
+          source.buffer = buffer;
+
+          // Low-pass filter for rumble
+          const filter = ac.createBiquadFilter();
+          filter.type = "lowpass";
+          filter.frequency.setValueAtTime(300, ac.currentTime);
+          filter.frequency.exponentialRampToValueAtTime(80, ac.currentTime + 1.5);
+
+          const gain = ac.createGain();
+          gain.gain.setValueAtTime(1.2, ac.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.01, ac.currentTime + 1.5);
+
+          source.connect(filter);
+          filter.connect(gain);
+          gain.connect(ac.destination);
+          source.start();
+        } catch (e) {
+          // AudioContext unavailable – silently skip
+        }
+      }
+
+      // Draw a jagged lightning bolt between two points
+      function drawLightning(x1, y1, x2, y2) {
+        const segments = 8;
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const len = Math.sqrt(dx * dx + dy * dy);
+        const nx = -dy / len; // normal direction
+        const ny = dx / len;
+        const jitter = len * 0.18;
+
+        const pts = [{ x: x1, y: y1 }];
+        for (let i = 1; i < segments; i++) {
+          const t = i / segments;
+          const offset = (Math.random() - 0.5) * 2 * jitter;
+          pts.push({
+            x: x1 + dx * t + nx * offset,
+            y: y1 + dy * t + ny * offset,
+          });
+        }
+        pts.push({ x: x2, y: y2 });
+
+        // Glow layer
+        ctx.save();
+        ctx.shadowColor = "#ffffaa";
+        ctx.shadowBlur = 18;
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 3;
+        ctx.lineJoin = "round";
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+        ctx.stroke();
+
+        // Core bright line
+        ctx.shadowBlur = 6;
+        ctx.strokeStyle = "#ffe94d";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+        ctx.stroke();
+        ctx.restore();
+      }
+
       function resize() {
         const rect = canvas.getBoundingClientRect();
         canvas.width = rect.width;
@@ -66,6 +152,34 @@
         // Dark brown background
         ctx.fillStyle = "#3b1f0a";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Collision detection & lightning
+        const ids = [...bubbles.keys()];
+        const nowTouching = new Set();
+        for (let i = 0; i < ids.length; i++) {
+          for (let j = i + 1; j < ids.length; j++) {
+            const a = bubbles.get(ids[i]);
+            const b = bubbles.get(ids[j]);
+            const dx = b.x - a.x;
+            const dy = b.y - a.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist <= a.r + b.r) {
+              const pairKey = ids[i] + ":" + ids[j];
+              nowTouching.add(pairKey);
+              // Play thunder only when the pair first touches
+              if (!touchingPairs.has(pairKey)) playThunder();
+              // Draw lightning bolt along the contact line
+              const t = a.r / dist;
+              drawLightning(
+                a.x + dx * t, a.y + dy * t,
+                b.x - dx * (b.r / dist), b.y - dy * (b.r / dist)
+              );
+            }
+          }
+        }
+        // Update touching set
+        touchingPairs.clear();
+        for (const k of nowTouching) touchingPairs.add(k);
 
         for (const bubble of bubbles.values()) {
           const gradient = ctx.createRadialGradient(
@@ -91,7 +205,7 @@
         bubbles.set(e.pointerId, {
           x: (e.clientX - rect.left) * scaleX,
           y: (e.clientY - rect.top) * scaleY,
-          r: 40,
+          r: 52,
           color: pickColor(e.pointerId),
         });
         canvas.setPointerCapture(e.pointerId);
