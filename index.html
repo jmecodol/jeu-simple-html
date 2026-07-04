@@ -93,6 +93,7 @@
       let lastTime = 0;
       let audioCtx = null;
       let flashTimeout = null;
+      let audioUnlocked = false;
 
       const flashOverlay = document.createElement("div");
       flashOverlay.style.cssText =
@@ -130,7 +131,15 @@
         return audioCtx;
       }
 
+      function unlockAudio() {
+        audioUnlocked = true;
+        if (audioCtx && audioCtx.state === "suspended") {
+          audioCtx.resume().catch(() => {});
+        }
+      }
+
       function playExplosion() {
+        if (!audioUnlocked) return;
         try {
           const ac = getAudioCtx();
           const bufferSize = ac.sampleRate * 0.45;
@@ -156,6 +165,7 @@
       }
 
       function playShot() {
+        if (!audioUnlocked) return;
         try {
           const ac = getAudioCtx();
           const osc = ac.createOscillator();
@@ -455,7 +465,7 @@
         ctx.fillStyle = "#f7e4d2";
         ctx.font = "14px Arial";
         ctx.textAlign = "center";
-        ctx.fillText("Haut : Q/A/D ou glisser dans la moitié haute", canvas.width / 2, 24);
+        ctx.fillText("Haut : A/Q et D ou glisser dans la moitié haute", canvas.width / 2, 24);
         ctx.fillText(
           "Bas : flèches ← → ou glisser dans la moitié basse",
           canvas.width / 2,
@@ -543,7 +553,9 @@
 
       canvas.addEventListener("pointerdown", (e) => {
         e.preventDefault();
-        const playerId = e.clientY < window.innerHeight / 2 ? "top" : "bottom";
+        unlockAudio();
+        const rect = canvas.getBoundingClientRect();
+        const playerId = e.clientY - rect.top < rect.height / 2 ? "top" : "bottom";
         pointerAssignments.set(e.pointerId, playerId);
         movePlayerToX(playerId, e.clientX);
         canvas.setPointerCapture(e.pointerId);
@@ -564,6 +576,7 @@
       canvas.addEventListener("pointercancel", releasePointer);
 
       window.addEventListener("keydown", (e) => {
+        unlockAudio();
         keyState.add(e.key.toLowerCase());
       });
 
