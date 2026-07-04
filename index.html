@@ -55,12 +55,69 @@
         display: none;
         z-index: 20;
       }
+
+      #menuScreen {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: rgba(18, 8, 2, 0.93);
+        z-index: 30;
+        gap: 20px;
+        padding: 24px;
+      }
+
+      #menuScreen h2 {
+        color: #d4a07a;
+        font-size: clamp(1.4rem, 5vw, 2.2rem);
+        text-align: center;
+        text-shadow: 0 0 28px #ff9f6888;
+      }
+
+      #menuScreen p {
+        color: #f7e4d2aa;
+        font-size: clamp(0.85rem, 3vw, 1rem);
+        text-align: center;
+      }
+
+      .menuBtn {
+        border: none;
+        border-radius: 999px;
+        padding: 14px 32px;
+        background: #fff2d6;
+        color: #4f2b10;
+        font-size: clamp(0.9rem, 3vw, 1.1rem);
+        font-weight: bold;
+        cursor: pointer;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+        transition: transform 0.12s, box-shadow 0.12s;
+        max-width: 340px;
+        width: 100%;
+      }
+
+      .menuBtn:hover,
+      .menuBtn:active {
+        transform: scale(1.04);
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+      }
     </style>
   </head>
   <body>
-    <h1>Guerre spatiale : haut contre bas</h1>
+    <h1>Guerre spatiale</h1>
     <canvas id="gameCanvas"></canvas>
-    <button id="replayButton" type="button">Rejouer</button>
+    <button id="replayButton" type="button">Menu principal</button>
+
+    <div id="menuScreen">
+      <h2>🚀 Guerre Spatiale</h2>
+      <p>Choisissez votre mode de jeu</p>
+      <button class="menuBtn" id="btnPvp" type="button">⚔️ Duel — Haut contre Bas</button>
+      <button class="menuBtn" id="btnCoop" type="button">🤝 Équipe — 2 joueurs vs Ennemis</button>
+    </div>
 
     <script>
       const canvas = document.getElementById("gameCanvas");
@@ -80,6 +137,14 @@
       const LEVEL_END_DURATION = 2800;
       const TOP_COLOR = "#7bdff2";
       const BOTTOM_COLOR = "#ff9f68";
+
+      // Coop mode constants
+      const COOP_ENEMY_COLOR = "#ff4455";
+      const COOP_WAVES_TO_WIN = 5;
+      const COOP_WAVE_END_DURATION = 3000;
+      const COOP_ENEMY_SPAWN_INTERVAL = 900;
+      const COOP_ENEMY_BASE_MOVE_SPEED = 55;
+      const COOP_MAX_PLAYER_DEATHS = 10;
 
       // Bonus system
       const BONUS_PILL_RADIUS = 14;
@@ -136,15 +201,28 @@
       let bonusSpawnTimer = BONUS_SPAWN_INTERVAL;
       const pointerToShip = new Map();
 
-      // round kills (progress toward WIN_MILESTONE in the current level)
+      // Game mode: null = menu, "pvp" = duel, "coop" = team vs enemies
+      let gameMode = null;
+
+      // PvP state
       let teamWins = { top: 0, bottom: 0 };
-      // levels (rounds) won by each team
       let levelWins = { top: 0, bottom: 0 };
       let currentLevel = 1;
       // 'playing' | 'levelEnd' | 'matchEnd'
       let gamePhase = "playing";
       let levelEndWinner = null;
       let levelEndTimer = 0;
+
+      // Coop state
+      let coopWave = 0;
+      let coopKills = 0;
+      let coopPlayerDeaths = 0;
+      let coopVictory = false;
+      let coopWavePhase = "playing"; // 'playing' | 'waveEnd' | 'matchEnd'
+      let coopWaveEndTimer = 0;
+      let coopEnemySpawnList = [];
+      let coopEnemySpawnTimer = 0;
+      let coopEnemyIdCounter = 0;
 
       let lastTime = 0;
       let audioCtx = null;
@@ -294,7 +372,9 @@
 
       // Vertical direction each team's ship faces: top points down (+1), bottom points up (-1)
       function teamDir(team) {
-        return team === "top" ? 1 : -1;
+        if (team === "top") return 1;
+        if (team === "bottom") return -1;
+        return 1; // "player" / "enemy" default
       }
 
       function clampX(x) {
@@ -305,11 +385,23 @@
         return Math.min(Math.max(y, SHIP_SIZE + 12), canvas.height - SHIP_SIZE - 12);
       }
 
-      function createShip(id, team, x, y) {
+      function createShip(id, team, x, y, colorOverride) {
+        let color;
+        if (colorOverride) {
+          color = colorOverride;
+        } else if (team === "top") {
+          color = TOP_COLOR;
+        } else if (team === "bottom") {
+          color = BOTTOM_COLOR;
+        } else if (team === "enemy") {
+          color = COOP_ENEMY_COLOR;
+        } else {
+          color = TOP_COLOR; // "player" default
+        }
         return {
           id,
           team,
-          color: team === "top" ? TOP_COLOR : BOTTOM_COLOR,
+          color,
           x: clampX(x),
           y: clampY(y),
           heat: 0,
@@ -348,15 +440,72 @@
         bonusSpawnTimer = BONUS_SPAWN_INTERVAL;
         ships.clear();
         pointerToShip.clear();
-        teamWins = { top: 0, bottom: 0 };
-        levelWins = { top: 0, bottom: 0 };
-        currentLevel = 1;
-        gamePhase = "playing";
-        levelEndWinner = null;
-        levelEndTimer = 0;
         lastTime = 0;
         document.getElementById("replayButton").style.display = "none";
         resize();
+
+        if (gameMode === "pvp") {
+          teamWins = { top: 0, bottom: 0 };
+          levelWins = { top: 0, bottom: 0 };
+          currentLevel = 1;
+          gamePhase = "playing";
+          levelEndWinner = null;
+          levelEndTimer = 0;
+        } else if (gameMode === "coop") {
+          coopKills = 0;
+          coopPlayerDeaths = 0;
+          coopVictory = false;
+          coopEnemySpawnList = [];
+          coopEnemySpawnTimer = 0;
+          coopEnemyIdCounter = 0;
+          startCoopWave(1);
+        }
+      }
+
+      function showMenu() {
+        gameMode = null;
+        ships.clear();
+        pointerToShip.clear();
+        bullets.length = 0;
+        explosions.length = 0;
+        bonusPills.length = 0;
+        document.getElementById("menuScreen").style.display = "flex";
+        document.getElementById("replayButton").style.display = "none";
+        resize();
+      }
+
+      function startGame(mode) {
+        gameMode = mode;
+        document.getElementById("menuScreen").style.display = "none";
+        resetGame();
+      }
+
+      function startCoopWave(wave) {
+        coopWave = wave;
+        currentLevel = wave; // leverage existing speed/fire-rate scaling
+        coopWavePhase = "playing";
+        coopWaveEndTimer = 0;
+        // Clear remaining enemies and projectiles
+        for (const [id, ship] of ships.entries()) {
+          if (ship.team === "enemy") ships.delete(id);
+        }
+        bullets.length = 0;
+        bonusPills.length = 0;
+        bonusSpawnTimer = BONUS_SPAWN_INTERVAL;
+        // Queue enemies: 3 on wave 1, +1 per wave
+        const enemyCount = 2 + wave;
+        coopEnemySpawnList = [];
+        const margin = 70;
+        for (let i = 0; i < enemyCount; i++) {
+          const x = margin + Math.random() * (canvas.width - margin * 2);
+          const y = canvas.height * 0.25 + Math.random() * canvas.height * 0.5;
+          coopEnemySpawnList.push({ x, y });
+        }
+        coopEnemySpawnTimer = 600;
+      }
+
+      function startNextCoopWave() {
+        startCoopWave(coopWave + 1);
       }
 
       function resize() {
@@ -390,9 +539,6 @@
         playExplosion();
         triggerFlash(bulletColor, ship.color);
 
-        const winningTeam = ship.team === "top" ? "bottom" : "top";
-        teamWins[winningTeam] += 1;
-
         // Remove ship immediately
         ships.delete(ship.id);
         for (const [ptId, shipId] of pointerToShip.entries()) {
@@ -401,6 +547,24 @@
             break;
           }
         }
+
+        if (gameMode === "coop") {
+          if (ship.team === "enemy") {
+            coopKills++;
+          } else if (ship.team === "player") {
+            coopPlayerDeaths++;
+            if (coopPlayerDeaths >= COOP_MAX_PLAYER_DEATHS && coopWavePhase === "playing") {
+              coopWavePhase = "matchEnd";
+              coopVictory = false;
+              document.getElementById("replayButton").style.display = "block";
+            }
+          }
+          return;
+        }
+
+        // PvP mode
+        const winningTeam = ship.team === "top" ? "bottom" : "top";
+        teamWins[winningTeam] += 1;
 
         // Check level win
         if (teamWins[winningTeam] >= WIN_MILESTONE && gamePhase === "playing") {
@@ -617,15 +781,79 @@
       }
 
       function update(dt) {
-        if (gamePhase === "levelEnd") {
-          levelEndTimer -= dt;
-          if (levelEndTimer <= 0) startNextLevel();
-          return;
+        if (gameMode === null) return;
+
+        // Phase-transition gates
+        if (gameMode === "pvp") {
+          if (gamePhase === "levelEnd") {
+            levelEndTimer -= dt;
+            if (levelEndTimer <= 0) startNextLevel();
+            return;
+          }
+          if (gamePhase === "matchEnd") return;
+        } else if (gameMode === "coop") {
+          if (coopWavePhase === "waveEnd") {
+            coopWaveEndTimer -= dt;
+            if (coopWaveEndTimer <= 0) startNextCoopWave();
+            return;
+          }
+          if (coopWavePhase === "matchEnd") return;
         }
-        if (gamePhase === "matchEnd") return;
 
         const now = performance.now();
         const sec = dt / 1000;
+
+        // Coop: spawn queued enemies
+        if (gameMode === "coop" && coopEnemySpawnList.length > 0) {
+          coopEnemySpawnTimer -= dt;
+          if (coopEnemySpawnTimer <= 0) {
+            const pos = coopEnemySpawnList.shift();
+            const id = `enemy_${coopEnemyIdCounter++}`;
+            const ship = createShip(id, "enemy", pos.x, pos.y);
+            ship.lastFire = performance.now() + 800 + Math.random() * 600;
+            ships.set(id, ship);
+            coopEnemySpawnTimer = COOP_ENEMY_SPAWN_INTERVAL;
+          }
+        }
+
+        // Coop: enemy movement toward nearest player
+        if (gameMode === "coop") {
+          for (const ship of ships.values()) {
+            if (ship.team !== "enemy") continue;
+            let targetX = ship.x;
+            let targetY = canvas.height * 0.8;
+            let minDist = Infinity;
+            for (const other of ships.values()) {
+              if (other.team !== "player") continue;
+              const dx = other.x - ship.x;
+              const dy = other.y - ship.y;
+              const dist = Math.sqrt(dx * dx + dy * dy);
+              if (dist < minDist) { minDist = dist; targetX = other.x; targetY = other.y; }
+            }
+            const dx = targetX - ship.x;
+            const dy = targetY - ship.y;
+            const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+            if (dist > 80) {
+              ship.x = clampX(ship.x + (dx / dist) * COOP_ENEMY_BASE_MOVE_SPEED * sec);
+              ship.y = clampY(ship.y + (dy / dist) * COOP_ENEMY_BASE_MOVE_SPEED * sec);
+            }
+          }
+
+          // Coop: check wave completion
+          if (coopWavePhase === "playing" && coopEnemySpawnList.length === 0) {
+            const enemiesAlive = [...ships.values()].filter(s => s.team === "enemy").length;
+            if (enemiesAlive === 0 && coopEnemyIdCounter > 0) {
+              if (coopWave >= COOP_WAVES_TO_WIN) {
+                coopWavePhase = "matchEnd";
+                coopVictory = true;
+                document.getElementById("replayButton").style.display = "block";
+              } else {
+                coopWavePhase = "waveEnd";
+                coopWaveEndTimer = COOP_WAVE_END_DURATION;
+              }
+            }
+          }
+        }
 
         for (const ship of ships.values()) {
           ship.heat = Math.max(0, ship.heat - COOL_RATE * sec);
@@ -981,6 +1209,11 @@
       }
 
       function drawHud() {
+        if (gameMode === "coop") {
+          drawCoopHud();
+          return;
+        }
+
         drawWinBar("top", 24, 30);
         drawWinBar("bottom", canvas.height - 14, canvas.height - 22);
 
@@ -1012,6 +1245,102 @@
           canvas.width / 2,
           canvas.height / 2 + 18
         );
+        ctx.restore();
+      }
+
+      function drawCoopHud() {
+        const cx = canvas.width / 2;
+        ctx.save();
+
+        // Wave indicator (top center)
+        ctx.textAlign = "center";
+        ctx.fillStyle = "#f7e4d2cc";
+        ctx.font = "bold 14px Arial";
+        ctx.fillText(`Vague ${coopWave} / ${COOP_WAVES_TO_WIN}`, cx, 22);
+
+        // Kills (top left)
+        ctx.textAlign = "left";
+        ctx.fillStyle = COOP_ENEMY_COLOR;
+        ctx.fillText(`☠ ${coopKills}`, 18, 22);
+
+        // Lives / deaths (top right)
+        const livesLeft = Math.max(0, COOP_MAX_PLAYER_DEATHS - coopPlayerDeaths);
+        ctx.textAlign = "right";
+        ctx.fillStyle = livesLeft > 3 ? "#44ff88" : livesLeft > 0 ? "#ffdd00" : "#ff4455";
+        ctx.fillText(`♥ ${livesLeft}`, canvas.width - 18, 22);
+
+        // Instruction hint
+        ctx.textAlign = "center";
+        ctx.fillStyle = "#f7e4d255";
+        ctx.font = "12px Arial";
+        ctx.fillText("Toucher l'écran pour placer vos vaisseaux", cx, canvas.height - 10);
+
+        ctx.restore();
+      }
+
+      function drawCoopWaveEnd() {
+        const nextWave = coopWave + 1;
+        const progress = Math.max(0, 1 - coopWaveEndTimer / COOP_WAVE_END_DURATION);
+        ctx.save();
+        ctx.globalAlpha = Math.min(1, progress * 4);
+        ctx.fillStyle = "rgba(0,0,0,0.55)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        const cx = canvas.width / 2;
+        const cy = canvas.height / 2;
+        ctx.textAlign = "center";
+        ctx.shadowColor = "#44ff88";
+        ctx.shadowBlur = 28;
+        ctx.fillStyle = "#44ff88";
+        ctx.font = "bold 38px Arial";
+        ctx.fillText(`VAGUE ${coopWave} TERMINÉE !`, cx, cy - 28);
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "bold 22px Arial";
+        ctx.shadowBlur = 12;
+        ctx.fillText(`Prochaine vague : ${nextWave}`, cx, cy + 16);
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = "#f7e4d2cc";
+        ctx.font = "16px Arial";
+        const barW = 200;
+        const barH = 8;
+        ctx.fillStyle = "#ffffff22";
+        ctx.fillRect(cx - barW / 2, cy + 36, barW, barH);
+        ctx.fillStyle = "#44ff88";
+        ctx.fillRect(cx - barW / 2, cy + 36, barW * (1 - coopWaveEndTimer / COOP_WAVE_END_DURATION), barH);
+        ctx.restore();
+      }
+
+      function drawCoopMatchEnd() {
+        ctx.save();
+        ctx.fillStyle = "rgba(0,0,0,0.7)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        const cx = canvas.width / 2;
+        const cy = canvas.height / 2 - 40;
+        ctx.textAlign = "center";
+        if (coopVictory) {
+          ctx.shadowColor = "#44ff88";
+          ctx.shadowBlur = 36;
+          ctx.fillStyle = "#44ff88";
+          ctx.font = "bold 44px Arial";
+          ctx.fillText("VICTOIRE !", cx, cy);
+          ctx.shadowBlur = 14;
+          ctx.fillStyle = "#fff2d6";
+          ctx.font = "bold 22px Arial";
+          ctx.fillText(`${COOP_WAVES_TO_WIN} vagues survécues !`, cx, cy + 44);
+        } else {
+          ctx.shadowColor = COOP_ENEMY_COLOR;
+          ctx.shadowBlur = 36;
+          ctx.fillStyle = COOP_ENEMY_COLOR;
+          ctx.font = "bold 44px Arial";
+          ctx.fillText("DÉFAITE", cx, cy);
+          ctx.shadowBlur = 14;
+          ctx.fillStyle = "#fff2d6";
+          ctx.font = "bold 22px Arial";
+          ctx.fillText(`Vague ${coopWave} — ${coopKills} ennemi(s) éliminé(s)`, cx, cy + 44);
+        }
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = "#f7e4d2aa";
+        ctx.font = "16px Arial";
+        ctx.fillText(`Pertes subies : ${coopPlayerDeaths} / ${COOP_MAX_PLAYER_DEATHS}`, cx, cy + 80);
         ctx.restore();
       }
 
@@ -1202,8 +1531,13 @@
         drawHud();
         drawBonusPills();
 
-        if (gamePhase === "levelEnd") drawLevelEnd();
-        if (gamePhase === "matchEnd") drawMatchEnd();
+        if (gameMode === "pvp") {
+          if (gamePhase === "levelEnd") drawLevelEnd();
+          if (gamePhase === "matchEnd") drawMatchEnd();
+        } else if (gameMode === "coop") {
+          if (coopWavePhase === "waveEnd") drawCoopWaveEnd();
+          if (coopWavePhase === "matchEnd") drawCoopMatchEnd();
+        }
       }
 
       function gameLoop(timestamp) {
@@ -1217,14 +1551,14 @@
       canvas.addEventListener("pointerdown", (e) => {
         e.preventDefault();
         unlockAudio();
-        if (gamePhase !== "playing") return;
+        const isPlaying = gameMode === "pvp" ? gamePhase === "playing" : coopWavePhase === "playing";
+        if (gameMode === null || !isPlaying) return;
         const rect = canvas.getBoundingClientRect();
         const scaleX = canvas.width / rect.width;
         const scaleY = canvas.height / rect.height;
         const x = (e.clientX - rect.left) * scaleX;
         const y = (e.clientY - rect.top) * scaleY;
-        // Assign team based on where the finger first touches
-        const team = y < canvas.height / 2 ? "top" : "bottom";
+        const team = gameMode === "coop" ? "player" : (y < canvas.height / 2 ? "top" : "bottom");
         const shipId = `touch_${e.pointerId}`;
         if (ships.has(shipId)) return;
         const ship = createShip(shipId, team, x, y);
@@ -1262,11 +1596,14 @@
 
       window.addEventListener("resize", resize);
 
+      document.getElementById("btnPvp").addEventListener("click", () => startGame("pvp"));
+      document.getElementById("btnCoop").addEventListener("click", () => startGame("coop"));
+
       document.getElementById("replayButton").addEventListener("click", () => {
-        resetGame();
+        showMenu();
       });
 
-      resetGame();
+      showMenu();
       requestAnimationFrame(gameLoop);
     </script>
   </body>
