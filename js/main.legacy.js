@@ -1128,6 +1128,7 @@ function drawBonusPills(nowMs) {
 }
 
 // ── Main draw ─────────────────────────────────────────────────────────────────
+
 function drawGalacticBackground(ctx, canvas, nowMs) {
   const w = canvas.width;
   const h = canvas.height;
@@ -1170,7 +1171,6 @@ function drawGalacticBackground(ctx, canvas, nowMs) {
   }
   ctx.restore();
 }
-
 function draw() {
   const ctx = state.ctx;
   const { canvas, ships, bullets, activeLasers, explosions, gameMode, gamePhase, coopWavePhase } = state;
@@ -1318,6 +1318,7 @@ function draw() {
 const PLAYER_SHIP_STOCK = 50;
 const PLAYER_SHIP_MODELS = ["falcon", "xwing", "cruiser"];
 const LASER_TICK_INTERVAL = 220;
+const MAGNET_DURATION_MS = 10000;
 
 const BULLET_DAMAGE = {
   normal: 1,
@@ -1331,7 +1332,6 @@ const BULLET_DAMAGE = {
   nova_shard: 2,
   magnet_ball: 10,
 };
-const MAGNET_DURATION_MS = 10000;
 
 // ── Geometry helpers ──────────────────────────────────────────────────────────
 function clampX(x) {
