@@ -2,6 +2,13 @@ import { state } from "./state.js";
 import { createShip, clampX, clampY, resize, showMenu, startGame, consumeShipModel } from "./game.js";
 import { unlockAudio } from "./audio.js";
 
+const TOUCH_AHEAD_OFFSET = 78;
+
+function getForwardTouchY(y, team) {
+  const dir = team === "bottom" ? -1 : 1;
+  return clampY(y + dir * TOUCH_AHEAD_OFFSET);
+}
+
 export function setupInput() {
   const canvas = state.canvas;
 
@@ -29,7 +36,7 @@ export function setupInput() {
     const model = consumeShipModel(team);
     if (!model) return;
 
-    const ship = createShip(shipId, team, x, y);
+    const ship = createShip(shipId, team, x, getForwardTouchY(y, team));
     ship.model = model;
     ship.lastFire = performance.now();
     state.ships.set(shipId, ship);
@@ -47,7 +54,7 @@ export function setupInput() {
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
     ship.x = clampX((e.clientX - rect.left) * scaleX);
-    ship.y = clampY((e.clientY - rect.top) * scaleY);
+    ship.y = getForwardTouchY((e.clientY - rect.top) * scaleY, ship.team);
   });
 
   function releasePointer(e) {

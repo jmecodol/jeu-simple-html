@@ -1938,6 +1938,12 @@ function gameLoop(timestamp) {
 }
 
 // ---- input.js ----
+const TOUCH_AHEAD_OFFSET = 26;
+
+function getForwardTouchY(y, team) {
+  const dir = team === "bottom" ? -1 : 1;
+  return clampY(y + dir * TOUCH_AHEAD_OFFSET);
+}
 function setupInput() {
   const canvas = state.canvas;
 
@@ -1965,7 +1971,7 @@ function setupInput() {
     const model = consumeShipModel(team);
     if (!model) return;
 
-    const ship = createShip(shipId, team, x, y);
+    const ship = createShip(shipId, team, x, getForwardTouchY(y, team));
     ship.model = model;
     ship.lastFire = performance.now();
     state.ships.set(shipId, ship);
@@ -1983,7 +1989,7 @@ function setupInput() {
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
     ship.x = clampX((e.clientX - rect.left) * scaleX);
-    ship.y = clampY((e.clientY - rect.top) * scaleY);
+    ship.y = getForwardTouchY((e.clientY - rect.top) * scaleY, ship.team);
   });
 
   function releasePointer(e) {
