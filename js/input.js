@@ -1,8 +1,8 @@
 import { state } from "./state.js";
 import { createShip, clampX, clampY, resize, showMenu, startGame, consumeShipModel } from "./game.js";
 import { unlockAudio } from "./audio.js";
+import { TOUCH_AHEAD_OFFSET } from "./constants.js";
 
-const TOUCH_AHEAD_OFFSET = 78;
 const DECK_CARD_W = 42;
 const DECK_CARD_H = 42;
 const DECK_CARD_GAP = 8;

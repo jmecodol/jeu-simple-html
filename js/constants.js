@@ -8,6 +8,7 @@ export const MAX_HEAT = 100;
 export const SHOT_HEAT = 18;
 export const COOL_RATE = 34;
 export const HEAT_RECOVERY_LEVEL = 35;
+export const TOUCH_AHEAD_OFFSET = 78;
 
 // ── PvP ──────────────────────────────────────────────────────────────────────
 export const WIN_MILESTONE = 10;
@@ -31,42 +32,33 @@ export const COOP_MAX_PLAYER_DEATHS = 10;
 export const BONUS_PILL_RADIUS = 14;
 export const BONUS_PILL_SPEED = 65;
 export const BONUS_PILL_LIFE = 9000;
-export const MAX_BONUS_PILLS = 3;
-export const BONUS_SPAWN_INTERVAL = 5500;
+export const MAX_BONUS_PILLS = 6;
+export const BONUS_SPAWN_INTERVAL = 2750;
 
 export const BONUS_TYPES = [
-  "laser", "ring", "rapid", "triple", "shield", "scatter",
-  "sniper", "mega", "homing", "burst", "nova", "quake",
+  "ring", "rapid", "triple", "scatter", "burst", "nova", "quake", "magnet",
 ];
 
 export const BONUS_COLORS = {
-  laser:    "#00eeff",
   ring:     "#cc44ff",
   rapid:    "#ffdd00",
   triple:   "#44ff88",
-  shield:   "#4499ff",
   scatter:  "#ff6644",
-  sniper:   "#e0e0ff",
-  mega:     "#ff22aa",
-  homing:   "#ffaa00",
   burst:    "#ff44ff",
   nova:     "#ff8800",
   quake:    "#ff5566",
+  magnet:   "#66e0ff",
 };
 
 export const BONUS_ICONS = {
-  laser:    "LZ",
   ring:     "RG",
   rapid:    "2X",
   triple:   "3",
-  shield:   "SH",
   scatter:  "5",
-  sniper:   "SN",
-  mega:     "MG",
-  homing:   "HM",
   burst:    "4",
   nova:     "NV",
   quake:    "QK",
+  magnet:   "MGN",
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

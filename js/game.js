@@ -11,7 +11,7 @@
 
 import {
   SHIP_SIZE, BASE_BULLET_SPEED, BULLET_RADIUS, SHIP_HIT_RADIUS,
-  BASE_FIRE_INTERVAL, MAX_HEAT, SHOT_HEAT, COOL_RATE, HEAT_RECOVERY_LEVEL,
+  BASE_FIRE_INTERVAL, MAX_HEAT, SHOT_HEAT, COOL_RATE, HEAT_RECOVERY_LEVEL, TOUCH_AHEAD_OFFSET,
   WIN_MILESTONE, LEVELS_TO_WIN, LEVEL_END_DURATION,
   TOP_COLOR, BOTTOM_COLOR,
   COOP_ENEMY_COLOR, COOP_WAVES_TO_WIN, COOP_WAVE_END_DURATION,
@@ -30,7 +30,7 @@ import { draw } from "./render.js";
 
 const PLAYER_SHIP_STOCK = 50;
 const PLAYER_SHIP_MODELS = ["falcon", "xwing", "cruiser"];
-const LASER_TICK_INTERVAL = 120;
+const LASER_TICK_INTERVAL = 220;
 
 const BULLET_DAMAGE = {
   normal: 1,
@@ -39,12 +39,10 @@ const BULLET_DAMAGE = {
   triple: 2,
   burst: 2,
   quake: 2,
-  homing: 2,
   laser: 4,
-  mega: 4,
-  sniper: 5,
   nova: 3,
   nova_shard: 2,
+  magnet_ball: 10,
 };
 
 // ── Geometry helpers ──────────────────────────────────────────────────────────
@@ -60,7 +58,7 @@ export function clampY(y) {
 // ── Game-speed helpers (depend on currentLevel) ───────────────────────────────
 
 function getBulletSpeed() {
-  return BASE_BULLET_SPEED + (state.currentLevel - 1) * 40;
+  return (BASE_BULLET_SPEED + (state.currentLevel - 1) * 40) * 1.3;
 }
 
 function getFireInterval() {
@@ -74,8 +72,8 @@ function getShipFireInterval(ship) {
   if (ship.team === "enemy") return Math.max(60, base * COOP_ENEMY_FIRE_RATE_MULTIPLIER);
   // Rapid now fires 2x faster than the previous rapid behavior.
   if (ship.bonusType === "rapid" || ship.bonusType === "triple") return base * 0.21;
-  // Mega, burst(4) and scatter(5): +100% fire rate.
-  if (ship.bonusType === "mega" || ship.bonusType === "burst" || ship.bonusType === "scatter") {
+  // Burst(4) and scatter(5): +100% fire rate.
+  if (ship.bonusType === "burst" || ship.bonusType === "scatter") {
     return base * 0.5;
   }
   // Ring and quake are also projectile-spread bonuses.
@@ -87,6 +85,26 @@ function getShipFireInterval(ship) {
 
 function getBulletDamage(btype) {
   return BULLET_DAMAGE[btype] || 1;
+}
+
+function fireMagnetBall(ship) {
+  const speed = getBulletSpeed() * 0.92;
+  const { nearest, aimVx, aimVy } = getNearestEnemy(ship, speed);
+  const charge = Math.max(1, ship.magnetCharge || 0);
+  const damageScale = Math.min(18, 8 + charge);
+  const radiusScale = Math.min(34, 20 + charge * 0.9);
+
+  state.bullets.push({
+    x: ship.x,
+    y: ship.y,
+    vx: nearest ? aimVx : 0,
+    vy: nearest ? aimVy : teamDir(ship.team) * speed,
+    color: ship.color,
+    ownerTeam: ship.team,
+    btype: "magnet_ball",
+    damage: damageScale,
+    radius: radiusScale,
+  });
 }
 
 function getNearestEnemy(ship, speed) {
@@ -221,7 +239,7 @@ export function createShip(id, team, x, y, colorOverride) {
     x: clampX(x), y: clampY(y),
     heat: 0, lastFire: 0, active: true, overheated: false,
     bonusType: null, bonusExpiry: 0,
-    shield: false,
+    magnetCharge: 0,
     model: defaultModel,
     hp: 10, maxHp: 10,
   };
@@ -240,11 +258,11 @@ function createExplosion(x, y, color) {
 // ── Combat ────────────────────────────────────────────────────────────────────
 
 function destroyShip(ship, bulletColor, damage = 1) {
-  // Shield absorbs one hit
-  if (ship.shield) {
-    ship.shield = false;
-    ship.bonusType = null;
-    createExplosion(ship.x, ship.y, "#4499ff");
+  // Magnet converts incoming damage into a huge counter projectile.
+  if (ship.bonusType === "magnet") {
+    fireMagnetBall(ship);
+    ship.magnetCharge = 0;
+    createExplosion(ship.x, ship.y, "#66e0ff");
     return;
   }
   // Every ship dies after losing 10 HP (hp reaches 0)
@@ -361,12 +379,32 @@ function updateBonusPills(dt, sec, now) {
     if (pill.life <= 0) { state.bonusPills.splice(i, 1); continue; }
 
     let collected = false;
+    const pickupDistance = SHIP_HIT_RADIUS + BONUS_PILL_RADIUS;
     for (const ship of state.ships.values()) {
       if (!ship.active) continue;
       const dx = pill.x - ship.x;
       const dy = pill.y - ship.y;
-      if (Math.sqrt(dx * dx + dy * dy) < SHIP_HIT_RADIUS + BONUS_PILL_RADIUS) {
-        applyCollectedBonus(ship, pill.type);
+      const shipTouchesPill = Math.sqrt(dx * dx + dy * dy) < pickupDistance;
+
+      let fingerTouchesPill = false;
+      if (!shipTouchesPill && ship.id.startsWith("touch_")) {
+        const fingerX = ship.x;
+        const fingerY = clampY(ship.y - teamDir(ship.team) * TOUCH_AHEAD_OFFSET);
+        const tx = pill.x - fingerX;
+        const ty = pill.y - fingerY;
+        fingerTouchesPill = Math.sqrt(tx * tx + ty * ty) < pickupDistance;
+      }
+
+      if (shipTouchesPill || fingerTouchesPill) {
+        if (pill.type === "magnet") {
+          ship.bonusType = "magnet";
+          ship.bonusExpiry = Infinity;
+          const absorbed = state.bullets.length;
+          ship.magnetCharge = Math.max(1, ship.magnetCharge + absorbed);
+          state.bullets.length = 0;
+        } else {
+          applyCollectedBonus(ship, pill.type);
+        }
         state.bonusPills.splice(i, 1);
         playBonusPickup();
         collected = true;
@@ -567,11 +605,6 @@ export function update(dt) {
     if (ship.overheated && ship.heat <= HEAT_RECOVERY_LEVEL) ship.overheated = false;
     if (!ship.active) continue;
 
-    if (ship.bonusType === "laser") {
-      updateLaserBeam(ship, now, sec);
-      continue;
-    }
-
     if (now - ship.lastFire >= getShipFireInterval(ship)) fireBullet(ship, now);
   }
 
@@ -581,33 +614,6 @@ export function update(dt) {
     b.x += b.vx * sec;
     b.y += b.vy * sec;
 
-    // Homing steering
-    if (b.btype === "homing") {
-      let nearest = null;
-      let minD = Infinity;
-      for (const s of state.ships.values()) {
-        if (s.team === b.ownerTeam || !s.active) continue;
-        const dx = s.x - b.x;
-        const dy = s.y - b.y;
-        const d = Math.sqrt(dx * dx + dy * dy);
-        if (d < minD) { minD = d; nearest = s; }
-      }
-      if (nearest) {
-        const dx = nearest.x - b.x;
-        const dy = nearest.y - b.y;
-        const len = Math.sqrt(dx * dx + dy * dy) || 1;
-        const turnRate = 3.2 * sec;
-        const cur = Math.atan2(b.vy, b.vx);
-        let dA = Math.atan2(dy / len, dx / len) - cur;
-        while (dA > Math.PI) dA -= Math.PI * 2;
-        while (dA < -Math.PI) dA += Math.PI * 2;
-        const newA = cur + Math.sign(dA) * Math.min(Math.abs(dA), turnRate);
-        const spd = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
-        b.vx = Math.cos(newA) * spd;
-        b.vy = Math.sin(newA) * spd;
-      }
-    }
-
     const W = state.canvas.width;
     const H = state.canvas.height;
     if (b.x < -50 || b.x > W + 50 || b.y < -50 || b.y > H + 50) {
@@ -615,7 +621,7 @@ export function update(dt) {
       continue;
     }
 
-    const bRadius = b.btype === "mega" ? 18 : b.btype === "nova" ? BULLET_RADIUS * 3 : BULLET_RADIUS;
+    const bRadius = b.btype === "nova" ? BULLET_RADIUS * 3 : b.btype === "magnet_ball" ? (b.radius || 24) : BULLET_RADIUS;
     let hit = false;
     for (const ship of state.ships.values()) {
       if (ship.team === b.ownerTeam || !ship.active) continue;
@@ -630,7 +636,7 @@ export function update(dt) {
             state.bullets.push({ x: b.x, y: b.y, vx: Math.cos(na) * novaSpeed * 0.65, vy: Math.sin(na) * novaSpeed * 0.65, color: b.color, ownerTeam: b.ownerTeam, btype: "nova_shard" });
           }
         }
-        destroyShip(ship, b.color, getBulletDamage(b.btype));
+        destroyShip(ship, b.color, b.damage || getBulletDamage(b.btype));
         state.bullets.splice(i, 1);
         hit = true;
         break;

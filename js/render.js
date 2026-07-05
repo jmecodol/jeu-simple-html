@@ -679,57 +679,16 @@ function drawBonusIcon(ctx, type, x, y, size, color) {
 
   if (type === "ring") { drawCountRing(8); return; }
 
-  if (type === "shield") {
+  if (type === "magnet") {
     ctx.beginPath();
-    ctx.moveTo(x, y - size * 0.45);
-    ctx.lineTo(x + size * 0.34, y - size * 0.1);
-    ctx.lineTo(x + size * 0.24, y + size * 0.36);
-    ctx.lineTo(x - size * 0.24, y + size * 0.36);
-    ctx.lineTo(x - size * 0.34, y - size * 0.1);
-    ctx.closePath();
-    ctx.strokeStyle = "#ffffff";
-    ctx.lineWidth = line;
-    ctx.stroke();
-    return;
-  }
-
-  if (type === "sniper") {
-    ctx.beginPath();
-    ctx.arc(x, y, size * 0.38, 0, Math.PI * 2);
+    ctx.arc(x, y, size * 0.45, Math.PI * 0.2, Math.PI * 1.8);
     ctx.strokeStyle = "#ffffff";
     ctx.lineWidth = line;
     ctx.stroke();
     ctx.beginPath();
-    ctx.moveTo(x - size * 0.52, y);
-    ctx.lineTo(x + size * 0.52, y);
-    ctx.moveTo(x, y - size * 0.52);
-    ctx.lineTo(x, y + size * 0.52);
-    ctx.stroke();
-    return;
-  }
-
-  if (type === "mega") {
-    ctx.beginPath();
-    ctx.arc(x, y, size * 0.44, 0, Math.PI * 2);
+    ctx.arc(x + size * 0.2, y - size * 0.1, size * 0.12, 0, Math.PI * 2);
     ctx.fillStyle = "#ffffff";
     ctx.fill();
-    ctx.beginPath();
-    ctx.arc(x, y, size * 0.2, 0, Math.PI * 2);
-    ctx.fillStyle = color;
-    ctx.fill();
-    return;
-  }
-
-  if (type === "homing") {
-    ctx.beginPath();
-    ctx.arc(x, y, size * 0.22, 0, Math.PI * 2);
-    ctx.fillStyle = "#ffffff";
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(x, y, size * 0.5, -Math.PI * 0.9, Math.PI * 0.45);
-    ctx.strokeStyle = "#ffffff";
-    ctx.lineWidth = line;
-    ctx.stroke();
     return;
   }
 
@@ -841,20 +800,6 @@ export function draw() {
     }
     ctx.restore();
 
-    // Shield bubble
-    if (ship.shield) {
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(ship.x, ship.y, SHIP_SIZE * 1.45, 0, Math.PI * 2);
-      ctx.strokeStyle = "#4499ff";
-      ctx.lineWidth = 2.5;
-      ctx.shadowColor = "#4499ff";
-      ctx.shadowBlur = 14;
-      ctx.globalAlpha = 0.8;
-      ctx.stroke();
-      ctx.restore();
-    }
-
     // Permanent bonus badge
     if (ship.bonusType) {
       const iy = ship.team === "top" ? ship.y - SHIP_SIZE * 1.35 : ship.y + SHIP_SIZE * 1.35;
@@ -908,24 +853,11 @@ export function draw() {
   for (const b of bullets) {
     ctx.save();
     ctx.shadowColor = b.color;
-    if (b.btype === "laser") {
-      const a = Math.atan2(b.vy, b.vx);
-      ctx.translate(b.x, b.y);
-      ctx.rotate(a);
-      ctx.shadowBlur = 22;
-      ctx.fillStyle = "#ffffff"; ctx.fillRect(-20, -2.5, 40, 5);
-      ctx.fillStyle = b.color;   ctx.fillRect(-18, -1.5, 36, 3);
-    } else if (b.btype === "sniper") {
-      const a = Math.atan2(b.vy, b.vx);
-      ctx.translate(b.x, b.y);
-      ctx.rotate(a);
-      ctx.shadowBlur = 14;
-      ctx.fillStyle = "#ffffff"; ctx.fillRect(-30, -1.2, 60, 2.4);
-      ctx.fillStyle = b.color;   ctx.fillRect(-28, -0.6, 56, 1.2);
-    } else if (b.btype === "mega") {
-      ctx.shadowBlur = 28;
-      ctx.beginPath(); ctx.arc(b.x, b.y, 18, 0, Math.PI * 2); ctx.fillStyle = b.color; ctx.fill();
-      ctx.beginPath(); ctx.arc(b.x, b.y, 9, 0, Math.PI * 2); ctx.fillStyle = "#ffffffaa"; ctx.fill();
+    if (b.btype === "magnet_ball") {
+      const rr = b.radius || 24;
+      ctx.shadowBlur = 34;
+      ctx.beginPath(); ctx.arc(b.x, b.y, rr, 0, Math.PI * 2); ctx.fillStyle = b.color; ctx.fill();
+      ctx.beginPath(); ctx.arc(b.x, b.y, rr * 0.45, 0, Math.PI * 2); ctx.fillStyle = "#ffffffaa"; ctx.fill();
     } else if (b.btype === "nova") {
       ctx.shadowBlur = 24;
       ctx.beginPath(); ctx.arc(b.x, b.y, BULLET_RADIUS * 1.5, 0, Math.PI * 2); ctx.fillStyle = b.color; ctx.fill();
@@ -940,7 +872,7 @@ export function draw() {
       ctx.beginPath();
       ctx.arc(b.x, b.y, r, 0, Math.PI * 2);
       ctx.fillStyle = b.color;
-      ctx.shadowBlur = b.btype === "homing" ? 18 : 14;
+      ctx.shadowBlur = 14;
       ctx.fill();
     }
     ctx.restore();

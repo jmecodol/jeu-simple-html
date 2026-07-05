@@ -12,6 +12,7 @@ const MAX_HEAT = 100;
 const SHOT_HEAT = 18;
 const COOL_RATE = 34;
 const HEAT_RECOVERY_LEVEL = 35;
+const TOUCH_AHEAD_OFFSET = 78;
 
 // ── PvP ──────────────────────────────────────────────────────────────────────
 const WIN_MILESTONE = 10;
@@ -35,39 +36,30 @@ const COOP_MAX_PLAYER_DEATHS = 10;
 const BONUS_PILL_RADIUS = 14;
 const BONUS_PILL_SPEED = 65;
 const BONUS_PILL_LIFE = 9000;
-const MAX_BONUS_PILLS = 3;
-const BONUS_SPAWN_INTERVAL = 5500;
+const MAX_BONUS_PILLS = 6;
+const BONUS_SPAWN_INTERVAL = 2750;
 const BONUS_TYPES = [
-  "laser", "ring", "rapid", "triple", "shield", "scatter",
-  "sniper", "mega", "homing", "burst", "nova", "quake",
+  "ring", "rapid", "triple", "scatter", "burst", "nova", "quake", "magnet",
 ];
 const BONUS_COLORS = {
-  laser:    "#00eeff",
   ring:     "#cc44ff",
   rapid:    "#ffdd00",
   triple:   "#44ff88",
-  shield:   "#4499ff",
   scatter:  "#ff6644",
-  sniper:   "#e0e0ff",
-  mega:     "#ff22aa",
-  homing:   "#ffaa00",
   burst:    "#ff44ff",
   nova:     "#ff8800",
   quake:    "#ff5566",
+  magnet:   "#66e0ff",
 };
 const BONUS_ICONS = {
-  laser:    "LZ",
   ring:     "RG",
   rapid:    "2X",
   triple:   "3",
-  shield:   "SH",
   scatter:  "5",
-  sniper:   "SN",
-  mega:     "MG",
-  homing:   "HM",
   burst:    "4",
   nova:     "NV",
   quake:    "QK",
+  magnet:   "MGN",
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -117,11 +109,6 @@ const bonusRegistry = {
       return makeRadialProjectiles(ship, speed, 8, 0.85, "ring");
     },
   },
-  laser: {
-    spawn({ ship, aimVx, aimVy }) {
-      return [{ x: ship.x, y: ship.y, vx: aimVx * 1.65, vy: aimVy * 1.65, btype: "laser" }];
-    },
-  },
   triple: {
     spawn({ ship, speed, aimAngle }) {
       return makeFanProjectiles(ship, speed, aimAngle, [-0.32, 0, 0.32], 1, "triple");
@@ -130,21 +117,6 @@ const bonusRegistry = {
   scatter: {
     spawn({ ship, speed, aimAngle }) {
       return makeFanProjectiles(ship, speed, aimAngle, [-0.55, -0.28, 0, 0.28, 0.55], 0.9, "scatter");
-    },
-  },
-  sniper: {
-    spawn({ ship, aimVx, aimVy }) {
-      return [{ x: ship.x, y: ship.y, vx: aimVx * 3.2, vy: aimVy * 3.2, btype: "sniper" }];
-    },
-  },
-  mega: {
-    spawn({ ship, aimVx, aimVy }) {
-      return [{ x: ship.x, y: ship.y, vx: aimVx * 0.55, vy: aimVy * 0.55, btype: "mega" }];
-    },
-  },
-  homing: {
-    spawn({ ship, aimVx, aimVy }) {
-      return [{ x: ship.x, y: ship.y, vx: aimVx, vy: aimVy, btype: "homing" }];
     },
   },
   burst: {
@@ -171,14 +143,21 @@ const bonusRegistry = {
 };
 function createProjectilesForBonusShot(context) {
   const behavior = bonusRegistry[context.type] || bonusRegistry.default;
-  return behavior.spawn(context);
-}
-function applyCollectedBonus(ship, type) {
-  if (type === "shield") {
-    ship.shield = true;
-    return;
+  const projectiles = behavior.spawn(context);
+
+  // Bonus shots travel 50% to 100% faster than classic shots.
+  if (context.type) {
+    for (const projectile of projectiles) {
+      const len = Math.sqrt(projectile.vx * projectile.vx + projectile.vy * projectile.vy) || 1;
+      const boostedSpeed = context.speed * (1.5 + Math.random() * 0.5);
+      projectile.vx = (projectile.vx / len) * boostedSpeed;
+      projectile.vy = (projectile.vy / len) * boostedSpeed;
+    }
   }
 
+  return projectiles;
+}
+function applyCollectedBonus(ship, type) {
   ship.bonusType = type;
   ship.bonusExpiry = Infinity;
 }
@@ -1061,57 +1040,16 @@ function drawBonusIcon(ctx, type, x, y, size, color) {
 
   if (type === "ring") { drawCountRing(8); return; }
 
-  if (type === "shield") {
+  if (type === "magnet") {
     ctx.beginPath();
-    ctx.moveTo(x, y - size * 0.45);
-    ctx.lineTo(x + size * 0.34, y - size * 0.1);
-    ctx.lineTo(x + size * 0.24, y + size * 0.36);
-    ctx.lineTo(x - size * 0.24, y + size * 0.36);
-    ctx.lineTo(x - size * 0.34, y - size * 0.1);
-    ctx.closePath();
-    ctx.strokeStyle = "#ffffff";
-    ctx.lineWidth = line;
-    ctx.stroke();
-    return;
-  }
-
-  if (type === "sniper") {
-    ctx.beginPath();
-    ctx.arc(x, y, size * 0.38, 0, Math.PI * 2);
+    ctx.arc(x, y, size * 0.45, Math.PI * 0.2, Math.PI * 1.8);
     ctx.strokeStyle = "#ffffff";
     ctx.lineWidth = line;
     ctx.stroke();
     ctx.beginPath();
-    ctx.moveTo(x - size * 0.52, y);
-    ctx.lineTo(x + size * 0.52, y);
-    ctx.moveTo(x, y - size * 0.52);
-    ctx.lineTo(x, y + size * 0.52);
-    ctx.stroke();
-    return;
-  }
-
-  if (type === "mega") {
-    ctx.beginPath();
-    ctx.arc(x, y, size * 0.44, 0, Math.PI * 2);
+    ctx.arc(x + size * 0.2, y - size * 0.1, size * 0.12, 0, Math.PI * 2);
     ctx.fillStyle = "#ffffff";
     ctx.fill();
-    ctx.beginPath();
-    ctx.arc(x, y, size * 0.2, 0, Math.PI * 2);
-    ctx.fillStyle = color;
-    ctx.fill();
-    return;
-  }
-
-  if (type === "homing") {
-    ctx.beginPath();
-    ctx.arc(x, y, size * 0.22, 0, Math.PI * 2);
-    ctx.fillStyle = "#ffffff";
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(x, y, size * 0.5, -Math.PI * 0.9, Math.PI * 0.45);
-    ctx.strokeStyle = "#ffffff";
-    ctx.lineWidth = line;
-    ctx.stroke();
     return;
   }
 
@@ -1222,20 +1160,6 @@ function draw() {
     }
     ctx.restore();
 
-    // Shield bubble
-    if (ship.shield) {
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(ship.x, ship.y, SHIP_SIZE * 1.45, 0, Math.PI * 2);
-      ctx.strokeStyle = "#4499ff";
-      ctx.lineWidth = 2.5;
-      ctx.shadowColor = "#4499ff";
-      ctx.shadowBlur = 14;
-      ctx.globalAlpha = 0.8;
-      ctx.stroke();
-      ctx.restore();
-    }
-
     // Permanent bonus badge
     if (ship.bonusType) {
       const iy = ship.team === "top" ? ship.y - SHIP_SIZE * 1.35 : ship.y + SHIP_SIZE * 1.35;
@@ -1289,24 +1213,11 @@ function draw() {
   for (const b of bullets) {
     ctx.save();
     ctx.shadowColor = b.color;
-    if (b.btype === "laser") {
-      const a = Math.atan2(b.vy, b.vx);
-      ctx.translate(b.x, b.y);
-      ctx.rotate(a);
-      ctx.shadowBlur = 22;
-      ctx.fillStyle = "#ffffff"; ctx.fillRect(-20, -2.5, 40, 5);
-      ctx.fillStyle = b.color;   ctx.fillRect(-18, -1.5, 36, 3);
-    } else if (b.btype === "sniper") {
-      const a = Math.atan2(b.vy, b.vx);
-      ctx.translate(b.x, b.y);
-      ctx.rotate(a);
-      ctx.shadowBlur = 14;
-      ctx.fillStyle = "#ffffff"; ctx.fillRect(-30, -1.2, 60, 2.4);
-      ctx.fillStyle = b.color;   ctx.fillRect(-28, -0.6, 56, 1.2);
-    } else if (b.btype === "mega") {
-      ctx.shadowBlur = 28;
-      ctx.beginPath(); ctx.arc(b.x, b.y, 18, 0, Math.PI * 2); ctx.fillStyle = b.color; ctx.fill();
-      ctx.beginPath(); ctx.arc(b.x, b.y, 9, 0, Math.PI * 2); ctx.fillStyle = "#ffffffaa"; ctx.fill();
+    if (b.btype === "magnet_ball") {
+      const rr = b.radius || 24;
+      ctx.shadowBlur = 34;
+      ctx.beginPath(); ctx.arc(b.x, b.y, rr, 0, Math.PI * 2); ctx.fillStyle = b.color; ctx.fill();
+      ctx.beginPath(); ctx.arc(b.x, b.y, rr * 0.45, 0, Math.PI * 2); ctx.fillStyle = "#ffffffaa"; ctx.fill();
     } else if (b.btype === "nova") {
       ctx.shadowBlur = 24;
       ctx.beginPath(); ctx.arc(b.x, b.y, BULLET_RADIUS * 1.5, 0, Math.PI * 2); ctx.fillStyle = b.color; ctx.fill();
@@ -1321,7 +1232,7 @@ function draw() {
       ctx.beginPath();
       ctx.arc(b.x, b.y, r, 0, Math.PI * 2);
       ctx.fillStyle = b.color;
-      ctx.shadowBlur = b.btype === "homing" ? 18 : 14;
+      ctx.shadowBlur = 14;
       ctx.fill();
     }
     ctx.restore();
@@ -1373,7 +1284,7 @@ function draw() {
 
 const PLAYER_SHIP_STOCK = 50;
 const PLAYER_SHIP_MODELS = ["falcon", "xwing", "cruiser"];
-const LASER_TICK_INTERVAL = 120;
+const LASER_TICK_INTERVAL = 220;
 
 const BULLET_DAMAGE = {
   normal: 1,
@@ -1382,12 +1293,10 @@ const BULLET_DAMAGE = {
   triple: 2,
   burst: 2,
   quake: 2,
-  homing: 2,
   laser: 4,
-  mega: 4,
-  sniper: 5,
   nova: 3,
   nova_shard: 2,
+  magnet_ball: 10,
 };
 
 // ── Geometry helpers ──────────────────────────────────────────────────────────
@@ -1401,7 +1310,7 @@ function clampY(y) {
 // ── Game-speed helpers (depend on currentLevel) ───────────────────────────────
 
 function getBulletSpeed() {
-  return BASE_BULLET_SPEED + (state.currentLevel - 1) * 40;
+  return (BASE_BULLET_SPEED + (state.currentLevel - 1) * 40) * 1.3;
 }
 
 function getFireInterval() {
@@ -1415,8 +1324,8 @@ function getShipFireInterval(ship) {
   if (ship.team === "enemy") return Math.max(60, base * COOP_ENEMY_FIRE_RATE_MULTIPLIER);
   // Rapid now fires 2x faster than the previous rapid behavior.
   if (ship.bonusType === "rapid" || ship.bonusType === "triple") return base * 0.21;
-  // Mega, burst(4) and scatter(5): +100% fire rate.
-  if (ship.bonusType === "mega" || ship.bonusType === "burst" || ship.bonusType === "scatter") {
+  // Burst(4) and scatter(5): +100% fire rate.
+  if (ship.bonusType === "burst" || ship.bonusType === "scatter") {
     return base * 0.5;
   }
   // Ring and quake are also projectile-spread bonuses.
@@ -1428,6 +1337,26 @@ function getShipFireInterval(ship) {
 
 function getBulletDamage(btype) {
   return BULLET_DAMAGE[btype] || 1;
+}
+
+function fireMagnetBall(ship) {
+  const speed = getBulletSpeed() * 0.92;
+  const { nearest, aimVx, aimVy } = getNearestEnemy(ship, speed);
+  const charge = Math.max(1, ship.magnetCharge || 0);
+  const damageScale = Math.min(18, 8 + charge);
+  const radiusScale = Math.min(34, 20 + charge * 0.9);
+
+  state.bullets.push({
+    x: ship.x,
+    y: ship.y,
+    vx: nearest ? aimVx : 0,
+    vy: nearest ? aimVy : teamDir(ship.team) * speed,
+    color: ship.color,
+    ownerTeam: ship.team,
+    btype: "magnet_ball",
+    damage: damageScale,
+    radius: radiusScale,
+  });
 }
 
 function getNearestEnemy(ship, speed) {
@@ -1560,7 +1489,7 @@ function createShip(id, team, x, y, colorOverride) {
     x: clampX(x), y: clampY(y),
     heat: 0, lastFire: 0, active: true, overheated: false,
     bonusType: null, bonusExpiry: 0,
-    shield: false,
+    magnetCharge: 0,
     model: defaultModel,
     hp: 10, maxHp: 10,
   };
@@ -1579,11 +1508,11 @@ function createExplosion(x, y, color) {
 // ── Combat ────────────────────────────────────────────────────────────────────
 
 function destroyShip(ship, bulletColor, damage = 1) {
-  // Shield absorbs one hit
-  if (ship.shield) {
-    ship.shield = false;
-    ship.bonusType = null;
-    createExplosion(ship.x, ship.y, "#4499ff");
+  // Magnet converts incoming damage into a huge counter projectile.
+  if (ship.bonusType === "magnet") {
+    fireMagnetBall(ship);
+    ship.magnetCharge = 0;
+    createExplosion(ship.x, ship.y, "#66e0ff");
     return;
   }
   // Every ship dies after losing 10 HP (hp reaches 0)
@@ -1700,12 +1629,32 @@ function updateBonusPills(dt, sec, now) {
     if (pill.life <= 0) { state.bonusPills.splice(i, 1); continue; }
 
     let collected = false;
+    const pickupDistance = SHIP_HIT_RADIUS + BONUS_PILL_RADIUS;
     for (const ship of state.ships.values()) {
       if (!ship.active) continue;
       const dx = pill.x - ship.x;
       const dy = pill.y - ship.y;
-      if (Math.sqrt(dx * dx + dy * dy) < SHIP_HIT_RADIUS + BONUS_PILL_RADIUS) {
-        applyCollectedBonus(ship, pill.type);
+      const shipTouchesPill = Math.sqrt(dx * dx + dy * dy) < pickupDistance;
+
+      let fingerTouchesPill = false;
+      if (!shipTouchesPill && ship.id.startsWith("touch_")) {
+        const fingerX = ship.x;
+        const fingerY = clampY(ship.y - teamDir(ship.team) * TOUCH_AHEAD_OFFSET);
+        const tx = pill.x - fingerX;
+        const ty = pill.y - fingerY;
+        fingerTouchesPill = Math.sqrt(tx * tx + ty * ty) < pickupDistance;
+      }
+
+      if (shipTouchesPill || fingerTouchesPill) {
+        if (pill.type === "magnet") {
+          ship.bonusType = "magnet";
+          ship.bonusExpiry = Infinity;
+          const absorbed = state.bullets.length;
+          ship.magnetCharge = Math.max(1, ship.magnetCharge + absorbed);
+          state.bullets.length = 0;
+        } else {
+          applyCollectedBonus(ship, pill.type);
+        }
         state.bonusPills.splice(i, 1);
         playBonusPickup();
         collected = true;
@@ -1901,11 +1850,6 @@ function update(dt) {
     if (ship.overheated && ship.heat <= HEAT_RECOVERY_LEVEL) ship.overheated = false;
     if (!ship.active) continue;
 
-    if (ship.bonusType === "laser") {
-      updateLaserBeam(ship, now, sec);
-      continue;
-    }
-
     if (now - ship.lastFire >= getShipFireInterval(ship)) fireBullet(ship, now);
   }
 
@@ -1915,33 +1859,6 @@ function update(dt) {
     b.x += b.vx * sec;
     b.y += b.vy * sec;
 
-    // Homing steering
-    if (b.btype === "homing") {
-      let nearest = null;
-      let minD = Infinity;
-      for (const s of state.ships.values()) {
-        if (s.team === b.ownerTeam || !s.active) continue;
-        const dx = s.x - b.x;
-        const dy = s.y - b.y;
-        const d = Math.sqrt(dx * dx + dy * dy);
-        if (d < minD) { minD = d; nearest = s; }
-      }
-      if (nearest) {
-        const dx = nearest.x - b.x;
-        const dy = nearest.y - b.y;
-        const len = Math.sqrt(dx * dx + dy * dy) || 1;
-        const turnRate = 3.2 * sec;
-        const cur = Math.atan2(b.vy, b.vx);
-        let dA = Math.atan2(dy / len, dx / len) - cur;
-        while (dA > Math.PI) dA -= Math.PI * 2;
-        while (dA < -Math.PI) dA += Math.PI * 2;
-        const newA = cur + Math.sign(dA) * Math.min(Math.abs(dA), turnRate);
-        const spd = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
-        b.vx = Math.cos(newA) * spd;
-        b.vy = Math.sin(newA) * spd;
-      }
-    }
-
     const W = state.canvas.width;
     const H = state.canvas.height;
     if (b.x < -50 || b.x > W + 50 || b.y < -50 || b.y > H + 50) {
@@ -1949,7 +1866,7 @@ function update(dt) {
       continue;
     }
 
-    const bRadius = b.btype === "mega" ? 18 : b.btype === "nova" ? BULLET_RADIUS * 3 : BULLET_RADIUS;
+    const bRadius = b.btype === "nova" ? BULLET_RADIUS * 3 : b.btype === "magnet_ball" ? (b.radius || 24) : BULLET_RADIUS;
     let hit = false;
     for (const ship of state.ships.values()) {
       if (ship.team === b.ownerTeam || !ship.active) continue;
@@ -1964,7 +1881,7 @@ function update(dt) {
             state.bullets.push({ x: b.x, y: b.y, vx: Math.cos(na) * novaSpeed * 0.65, vy: Math.sin(na) * novaSpeed * 0.65, color: b.color, ownerTeam: b.ownerTeam, btype: "nova_shard" });
           }
         }
-        destroyShip(ship, b.color, getBulletDamage(b.btype));
+        destroyShip(ship, b.color, b.damage || getBulletDamage(b.btype));
         state.bullets.splice(i, 1);
         hit = true;
         break;
@@ -1999,7 +1916,6 @@ function gameLoop(timestamp) {
 }
 
 // ---- input.js ----
-const TOUCH_AHEAD_OFFSET = 78;
 const DECK_CARD_W = 42;
 const DECK_CARD_H = 42;
 const DECK_CARD_GAP = 8;

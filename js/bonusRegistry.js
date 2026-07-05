@@ -36,11 +36,6 @@ const bonusRegistry = {
       return makeRadialProjectiles(ship, speed, 8, 0.85, "ring");
     },
   },
-  laser: {
-    spawn({ ship, aimVx, aimVy }) {
-      return [{ x: ship.x, y: ship.y, vx: aimVx * 1.65, vy: aimVy * 1.65, btype: "laser" }];
-    },
-  },
   triple: {
     spawn({ ship, speed, aimAngle }) {
       return makeFanProjectiles(ship, speed, aimAngle, [-0.32, 0, 0.32], 1, "triple");
@@ -49,21 +44,6 @@ const bonusRegistry = {
   scatter: {
     spawn({ ship, speed, aimAngle }) {
       return makeFanProjectiles(ship, speed, aimAngle, [-0.55, -0.28, 0, 0.28, 0.55], 0.9, "scatter");
-    },
-  },
-  sniper: {
-    spawn({ ship, aimVx, aimVy }) {
-      return [{ x: ship.x, y: ship.y, vx: aimVx * 3.2, vy: aimVy * 3.2, btype: "sniper" }];
-    },
-  },
-  mega: {
-    spawn({ ship, aimVx, aimVy }) {
-      return [{ x: ship.x, y: ship.y, vx: aimVx * 0.55, vy: aimVy * 0.55, btype: "mega" }];
-    },
-  },
-  homing: {
-    spawn({ ship, aimVx, aimVy }) {
-      return [{ x: ship.x, y: ship.y, vx: aimVx, vy: aimVy, btype: "homing" }];
     },
   },
   burst: {
@@ -91,15 +71,22 @@ const bonusRegistry = {
 
 export function createProjectilesForBonusShot(context) {
   const behavior = bonusRegistry[context.type] || bonusRegistry.default;
-  return behavior.spawn(context);
+  const projectiles = behavior.spawn(context);
+
+  // Bonus shots travel 50% to 100% faster than classic shots.
+  if (context.type) {
+    for (const projectile of projectiles) {
+      const len = Math.sqrt(projectile.vx * projectile.vx + projectile.vy * projectile.vy) || 1;
+      const boostedSpeed = context.speed * (1.5 + Math.random() * 0.5);
+      projectile.vx = (projectile.vx / len) * boostedSpeed;
+      projectile.vy = (projectile.vy / len) * boostedSpeed;
+    }
+  }
+
+  return projectiles;
 }
 
 export function applyCollectedBonus(ship, type) {
-  if (type === "shield") {
-    ship.shield = true;
-    return;
-  }
-
   ship.bonusType = type;
   ship.bonusExpiry = Infinity;
 }
