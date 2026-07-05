@@ -1938,7 +1938,7 @@ function gameLoop(timestamp) {
 }
 
 // ---- input.js ----
-const TOUCH_AHEAD_OFFSET = 26;
+const TOUCH_AHEAD_OFFSET = 78;
 
 function getForwardTouchY(y, team) {
   const dir = team === "bottom" ? -1 : 1;
