@@ -6,13 +6,83 @@
 
 body {
   position: relative;
-  background-color: #2b1a0e;
+  background:
+    radial-gradient(circle at 20% 15%, #1b2742 0%, #0c1225 24%, #05070f 58%, #020308 100%);
   display: flex;
   flex-direction: column;
   align-items: center;
   height: 100dvh;
   overflow: hidden;
   font-family: Arial, sans-serif;
+}
+
+/* Layered star field to create a subtle animated galactic backdrop. */
+body::before,
+body::after {
+  content: "";
+  position: fixed;
+  inset: -120%;
+  pointer-events: none;
+  z-index: 0;
+  background-repeat: repeat;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+body::before {
+  background-image:
+    radial-gradient(2px 2px at 12% 16%, rgba(255, 255, 255, 0.92) 45%, transparent 55%),
+    radial-gradient(1.5px 1.5px at 37% 24%, rgba(216, 238, 255, 0.88) 45%, transparent 55%),
+    radial-gradient(1.8px 1.8px at 66% 34%, rgba(255, 255, 255, 0.84) 45%, transparent 55%),
+    radial-gradient(1.4px 1.4px at 84% 17%, rgba(199, 228, 255, 0.8) 45%, transparent 55%),
+    radial-gradient(1.6px 1.6px at 58% 72%, rgba(255, 255, 255, 0.76) 45%, transparent 55%),
+    radial-gradient(1.2px 1.2px at 21% 68%, rgba(223, 233, 255, 0.78) 45%, transparent 55%),
+    radial-gradient(1.8px 1.8px at 74% 83%, rgba(255, 255, 255, 0.86) 45%, transparent 55%),
+    radial-gradient(1.3px 1.3px at 93% 63%, rgba(218, 230, 255, 0.7) 45%, transparent 55%);
+  background-size: 520px 520px;
+  opacity: 0.62;
+  animation-name: galaxyDriftNear;
+  animation-duration: 90s;
+}
+
+body::after {
+  background-image:
+    radial-gradient(1px 1px at 8% 10%, rgba(255, 255, 255, 0.65) 42%, transparent 58%),
+    radial-gradient(1px 1px at 25% 42%, rgba(208, 230, 255, 0.58) 42%, transparent 58%),
+    radial-gradient(1px 1px at 47% 18%, rgba(255, 255, 255, 0.54) 42%, transparent 58%),
+    radial-gradient(1px 1px at 62% 55%, rgba(255, 255, 255, 0.52) 42%, transparent 58%),
+    radial-gradient(1px 1px at 81% 26%, rgba(192, 220, 255, 0.56) 42%, transparent 58%),
+    radial-gradient(1px 1px at 91% 74%, rgba(255, 255, 255, 0.52) 42%, transparent 58%),
+    radial-gradient(1px 1px at 36% 86%, rgba(211, 231, 255, 0.5) 42%, transparent 58%);
+  background-size: 380px 380px;
+  opacity: 0.42;
+  filter: blur(0.2px);
+  animation-name: galaxyDriftFar;
+  animation-duration: 140s;
+}
+
+h1,
+canvas {
+  position: relative;
+  z-index: 1;
+}
+
+@keyframes galaxyDriftNear {
+  from {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  to {
+    transform: translate3d(-180px, -260px, 0) scale(1.04);
+  }
+}
+
+@keyframes galaxyDriftFar {
+  from {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  to {
+    transform: translate3d(-120px, -160px, 0) scale(1.02);
+  }
 }
 
 h1 {

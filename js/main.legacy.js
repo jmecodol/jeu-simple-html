@@ -1128,6 +1128,49 @@ function drawBonusPills(nowMs) {
 }
 
 // ── Main draw ─────────────────────────────────────────────────────────────────
+function drawGalacticBackground(ctx, canvas, nowMs) {
+  const w = canvas.width;
+  const h = canvas.height;
+  const t = nowMs * 0.001;
+
+  const bg = ctx.createLinearGradient(0, 0, 0, h);
+  bg.addColorStop(0, "#0b1226");
+  bg.addColorStop(0.52, "#040813");
+  bg.addColorStop(1, "#020308");
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, w, h);
+
+  const nebula = ctx.createRadialGradient(w * 0.22, h * 0.18, 20, w * 0.22, h * 0.18, Math.max(w, h) * 0.62);
+  nebula.addColorStop(0, "rgba(95, 140, 255, 0.14)");
+  nebula.addColorStop(0.45, "rgba(70, 110, 215, 0.08)");
+  nebula.addColorStop(1, "rgba(10, 18, 40, 0)");
+  ctx.fillStyle = nebula;
+  ctx.fillRect(0, 0, w, h);
+
+  ctx.save();
+  for (let i = 0; i < 45; i++) {
+    const seed = i * 91.73;
+    const x = (seed * 71 + t * 24 + i * 33) % w;
+    const y = (seed * 37 + t * 12 + i * 57) % h;
+    const r = 0.8 + (i % 3) * 0.35;
+    const twinkle = 0.45 + 0.35 * Math.sin(t * 1.5 + i * 0.9);
+    ctx.fillStyle = `rgba(235, 244, 255, ${twinkle.toFixed(3)})`;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  for (let i = 0; i < 85; i++) {
+    const seed = i * 53.27;
+    const x = (seed * 29 + t * 10 + i * 19) % w;
+    const y = (seed * 61 + t * 6 + i * 41) % h;
+    const twinkle = 0.18 + 0.15 * Math.sin(t + i * 0.7);
+    ctx.fillStyle = `rgba(215, 230, 255, ${twinkle.toFixed(3)})`;
+    ctx.fillRect(x, y, 1.1, 1.1);
+  }
+  ctx.restore();
+}
+
 function draw() {
   const ctx = state.ctx;
   const { canvas, ships, bullets, activeLasers, explosions, gameMode, gamePhase, coopWavePhase } = state;
@@ -1135,17 +1178,7 @@ function draw() {
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // Background gradient
-  const bg = ctx.createLinearGradient(0, 0, 0, canvas.height);
-  bg.addColorStop(0, "#2a1308");
-  bg.addColorStop(0.5, "#4b250f");
-  bg.addColorStop(1, "#251106");
-  ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = "#ffffff08";
-  ctx.fillRect(0, 0, canvas.width, canvas.height / 2);
-  ctx.fillStyle = "#00000010";
-  ctx.fillRect(0, canvas.height / 2, canvas.width, canvas.height / 2);
+  drawGalacticBackground(ctx, canvas, nowMs);
 
   // Ships
   for (const ship of ships.values()) {
