@@ -2,16 +2,46 @@
 "use strict";
 
 // ---- constants.js ----
-// ── Ship & physics ──────────────────────────────────────────────────────────const SHIP_SIZE = 36;const BASE_BULLET_SPEED = 520;const BULLET_RADIUS = 6;const SHIP_HIT_RADIUS = 34;const BASE_FIRE_INTERVAL = 190;const MAX_HEAT = 100;const SHOT_HEAT = 18;const COOL_RATE = 34;const HEAT_RECOVERY_LEVEL = 35;
+// ── Ship & physics ──────────────────────────────────────────────────────────
+const SHIP_SIZE = 36;
+const BASE_BULLET_SPEED = 520;
+const BULLET_RADIUS = 6;
+const SHIP_HIT_RADIUS = 34;
+const BASE_FIRE_INTERVAL = 190;
+const MAX_HEAT = 100;
+const SHOT_HEAT = 18;
+const COOL_RATE = 34;
+const HEAT_RECOVERY_LEVEL = 35;
 
-// ── PvP ──────────────────────────────────────────────────────────────────────const WIN_MILESTONE = 10;const LEVELS_TO_WIN = 3;const LEVEL_END_DURATION = 2800;const TOP_COLOR = "#7bdff2";const BOTTOM_COLOR = "#ff9f68";
+// ── PvP ──────────────────────────────────────────────────────────────────────
+const WIN_MILESTONE = 10;
+const LEVELS_TO_WIN = 3;
+const LEVEL_END_DURATION = 2800;
+const TOP_COLOR = "#7bdff2";
+const BOTTOM_COLOR = "#ff9f68";
 
-// ── Coop ─────────────────────────────────────────────────────────────────────const COOP_ENEMY_COLOR = "#ff4455";const COOP_WAVES_TO_WIN = 5;const COOP_WAVE_END_DURATION = 3000;const COOP_ENEMY_SPAWN_INTERVAL = 900;const COOP_ENEMY_BASE_MOVE_SPEED = 75;const COOP_ENEMY_FIRE_RATE_MULTIPLIER = 0.55;const COOP_ENEMY_BASE_HP = 6;const COOP_ENEMY_HP_PER_WAVE = 2;const COOP_MAX_PLAYER_DEATHS = 10;
+// ── Coop ─────────────────────────────────────────────────────────────────────
+const COOP_ENEMY_COLOR = "#ff4455";
+const COOP_WAVES_TO_WIN = 5;
+const COOP_WAVE_END_DURATION = 3000;
+const COOP_ENEMY_SPAWN_INTERVAL = 900;
+const COOP_ENEMY_BASE_MOVE_SPEED = 75;
+const COOP_ENEMY_FIRE_RATE_MULTIPLIER = 0.55;
+const COOP_ENEMY_BASE_HP = 6;
+const COOP_ENEMY_HP_PER_WAVE = 2;
+const COOP_MAX_PLAYER_DEATHS = 10;
 
-// ── Bonus pills ───────────────────────────────────────────────────────────────const BONUS_PILL_RADIUS = 14;const BONUS_PILL_SPEED = 65;const BONUS_PILL_LIFE = 9000;const MAX_BONUS_PILLS = 3;const BONUS_SPAWN_INTERVAL = 5500;const BONUS_TYPES = [
+// ── Bonus pills ───────────────────────────────────────────────────────────────
+const BONUS_PILL_RADIUS = 14;
+const BONUS_PILL_SPEED = 65;
+const BONUS_PILL_LIFE = 9000;
+const MAX_BONUS_PILLS = 3;
+const BONUS_SPAWN_INTERVAL = 5500;
+const BONUS_TYPES = [
   "laser", "ring", "rapid", "triple", "shield", "scatter",
   "sniper", "mega", "homing", "burst", "nova", "quake",
-];const BONUS_COLORS = {
+];
+const BONUS_COLORS = {
   laser:    "#00eeff",
   ring:     "#cc44ff",
   rapid:    "#ffdd00",
@@ -24,7 +54,8 @@
   burst:    "#ff44ff",
   nova:     "#ff8800",
   quake:    "#ff5566",
-};const BONUS_ICONS = {
+};
+const BONUS_ICONS = {
   laser:    "LZ",
   ring:     "RG",
   rapid:    "2X",
@@ -41,7 +72,8 @@
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-/** Returns the vertical firing direction (+1 down, -1 up) for a team. */function teamDir(team) {
+/** Returns the vertical firing direction (+1 down, -1 up) for a team. */
+function teamDir(team) {
   if (team === "bottom") return -1;
   return 1; // "top", "player", "enemy"
 }
@@ -136,10 +168,12 @@ const bonusRegistry = {
       return [{ x: ship.x, y: ship.y, vx: aimVx, vy: aimVy, btype: "normal" }];
     },
   },
-};function createProjectilesForBonusShot(context) {
+};
+function createProjectilesForBonusShot(context) {
   const behavior = bonusRegistry[context.type] || bonusRegistry.default;
   return behavior.spawn(context);
-}function applyCollectedBonus(ship, type) {
+}
+function applyCollectedBonus(ship, type) {
   if (type === "shield") {
     ship.shield = true;
     return;
@@ -153,7 +187,8 @@ const bonusRegistry = {
 /**
  * Single shared mutable state object.
  * Every module imports this and reads/writes its properties directly.
- */const state = {
+ */
+const state = {
   // Canvas — set by main.js after DOM is ready
   canvas: null,
   ctx: null,
@@ -207,12 +242,14 @@ const bonusRegistry = {
 };
 
 // ---- audio.js ----
-// ── Public API ────────────────────────────────────────────────────────────────function unlockAudio() {
+// ── Public API ────────────────────────────────────────────────────────────────
+function unlockAudio() {
   state.audioUnlocked = true;
   if (state.audioCtx && state.audioCtx.state === "suspended") {
     state.audioCtx.resume().catch(() => {});
   }
-}function playBonusPickup() {
+}
+function playBonusPickup() {
   if (!state.audioUnlocked) return;
   try {
     const ac = _ctx();
@@ -265,7 +302,8 @@ const bonusRegistry = {
     oscB.stop(now + 0.95);
     lfo.stop(now + 0.95);
   } catch (_) {}
-}function playExplosion() {
+}
+function playExplosion() {
   if (!state.audioUnlocked) return;
   try {
     const ac = _ctx();
@@ -289,7 +327,8 @@ const bonusRegistry = {
     gain.connect(ac.destination);
     source.start();
   } catch (_) {}
-}function playShot(type = "normal") {
+}
+function playShot(type = "normal") {
   if (!state.audioUnlocked) return;
   try {
     const ac = _ctx();
@@ -357,6 +396,8 @@ function _ctx() {
  *
  * Export: draw()  — called once per frame by game.js
  */
+
+
 // ── Ship drawing ──────────────────────────────────────────────────────────────
 
 const spritePaths = {
@@ -1095,7 +1136,8 @@ function drawBonusPills(nowMs) {
   }
 }
 
-// ── Main draw ─────────────────────────────────────────────────────────────────function draw() {
+// ── Main draw ─────────────────────────────────────────────────────────────────
+function draw() {
   const ctx = state.ctx;
   const { canvas, ships, bullets, activeLasers, explosions, gameMode, gamePhase, coopWavePhase } = state;
   const nowMs = performance.now();
@@ -1271,6 +1313,11 @@ function drawBonusPills(nowMs) {
  *   showMenu / startGame  — used by input.js (button handlers)
  *   gameLoop              — used by main.js to start rAF
  */
+
+
+
+
+
 const PLAYER_SHIP_STOCK = 50;
 const PLAYER_SHIP_MODELS = ["falcon", "xwing", "deathstar"];
 const LASER_TICK_INTERVAL = 120;
@@ -1290,9 +1337,11 @@ const BULLET_DAMAGE = {
   nova_shard: 2,
 };
 
-// ── Geometry helpers ──────────────────────────────────────────────────────────function clampX(x) {
+// ── Geometry helpers ──────────────────────────────────────────────────────────
+function clampX(x) {
   return Math.min(Math.max(x, SHIP_SIZE + 12), state.canvas.width - SHIP_SIZE - 12);
-}function clampY(y) {
+}
+function clampY(y) {
   return Math.min(Math.max(y, SHIP_SIZE + 12), state.canvas.height - SHIP_SIZE - 12);
 }
 
@@ -1411,7 +1460,8 @@ function initShipDecks() {
     state.shipDecks.bottom = [];
     state.shipDecks.player = createShipDeck(PLAYER_SHIP_STOCK);
   }
-}function consumeShipModel(team) {
+}
+function consumeShipModel(team) {
   const deck = state.shipDecks[team];
   if (!deck || deck.length === 0) return null;
   return deck.shift();
@@ -1439,7 +1489,8 @@ function triggerFlash(color1, color2) {
   step();
 }
 
-// ── Entity creation ───────────────────────────────────────────────────────────function createShip(id, team, x, y, colorOverride) {
+// ── Entity creation ───────────────────────────────────────────────────────────
+function createShip(id, team, x, y, colorOverride) {
   const color = colorOverride
     ?? (team === "top" ? TOP_COLOR : team === "bottom" ? BOTTOM_COLOR : team === "enemy" ? COOP_ENEMY_COLOR : TOP_COLOR);
   const defaultModel = team === "enemy" ? "tie" : team === "bottom" ? "xwing" : "falcon";
@@ -1649,7 +1700,8 @@ function startNextCoopWave() {
   startCoopWave(state.coopWave + 1);
 }
 
-// ── Public: canvas resize ─────────────────────────────────────────────────────function resize() {
+// ── Public: canvas resize ─────────────────────────────────────────────────────
+function resize() {
   const rect = state.canvas.getBoundingClientRect();
   state.canvas.width = rect.width;
   state.canvas.height = rect.height;
@@ -1659,7 +1711,8 @@ function startNextCoopWave() {
   }
 }
 
-// ── Public: game flow ─────────────────────────────────────────────────────────function resetGame() {
+// ── Public: game flow ─────────────────────────────────────────────────────────
+function resetGame() {
   _resetEntities();
   initShipDecks();
   document.getElementById("replayButton").style.display = "none";
@@ -1681,7 +1734,8 @@ function startNextCoopWave() {
     state.coopEnemyIdCounter = 0;
     startCoopWave(1);
   }
-}function showMenu() {
+}
+function showMenu() {
   state.gameMode = null;
   state.ships.clear();
   state.pointerToShip.clear();
@@ -1691,13 +1745,15 @@ function startNextCoopWave() {
   document.getElementById("menuScreen").style.display = "flex";
   document.getElementById("replayButton").style.display = "none";
   resize();
-}function startGame(mode) {
+}
+function startGame(mode) {
   state.gameMode = mode;
   document.getElementById("menuScreen").style.display = "none";
   resetGame();
 }
 
-// ── Update ────────────────────────────────────────────────────────────────────function update(dt) {
+// ── Update ────────────────────────────────────────────────────────────────────
+function update(dt) {
   if (state.gameMode === null) return;
 
   // Phase-transition gates
@@ -1872,7 +1928,8 @@ function startNextCoopWave() {
   updateBonusPills(dt, sec, now);
 }
 
-// ── Game loop ─────────────────────────────────────────────────────────────────function gameLoop(timestamp) {
+// ── Game loop ─────────────────────────────────────────────────────────────────
+function gameLoop(timestamp) {
   const dt = state.lastTime ? Math.min(timestamp - state.lastTime, 100) : 16;
   state.lastTime = timestamp;
   update(dt);
@@ -1956,6 +2013,9 @@ function setupInput() {
  *
  * ES modules are deferred by default, so the DOM is ready when this runs.
  */
+
+
+
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 
 state.canvas = document.getElementById("gameCanvas");

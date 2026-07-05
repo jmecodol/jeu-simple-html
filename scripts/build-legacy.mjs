@@ -23,13 +23,17 @@ function stripModuleSyntax(source) {
   return withoutImports.replace(/^\s*export\s+/gm, "");
 }
 
+function normalizeLineEndings(source) {
+  return source.replace(/\r\n?/g, "\n");
+}
+
 async function buildLegacyBundle() {
   const parts = [];
 
   for (const fileName of order) {
     const filePath = path.join(jsDir, fileName);
     const raw = await readFile(filePath, "utf8");
-    const transformed = stripModuleSyntax(raw).trim();
+    const transformed = stripModuleSyntax(normalizeLineEndings(raw)).trim();
     parts.push(`// ---- ${fileName} ----\n${transformed}\n`);
   }
 
