@@ -1331,6 +1331,7 @@ const BULLET_DAMAGE = {
   nova_shard: 2,
   magnet_ball: 10,
 };
+const MAGNET_DURATION_MS = 10000;
 
 // ── Geometry helpers ──────────────────────────────────────────────────────────
 function clampX(x) {
@@ -1372,10 +1373,9 @@ function getBulletDamage(btype) {
   return BULLET_DAMAGE[btype] || 1;
 }
 
-function fireMagnetBall(ship) {
+function fireMagnetBall(ship, charge) {
   const speed = getBulletSpeed() * 0.92;
   const { nearest, aimVx, aimVy } = getNearestEnemy(ship, speed);
-  const charge = Math.max(1, ship.magnetCharge || 0);
   const damageScale = Math.min(18, 8 + charge);
   const radiusScale = Math.min(34, 20 + charge * 0.9);
 
@@ -1390,6 +1390,27 @@ function fireMagnetBall(ship) {
     damage: damageScale,
     radius: radiusScale,
   });
+}
+
+function activateMagnetPulse(ship, now) {
+  let absorbed = 0;
+  for (let i = state.bullets.length - 1; i >= 0; i--) {
+    const b = state.bullets[i];
+    if (b.ownerTeam === ship.team) continue;
+    state.bullets.splice(i, 1);
+    absorbed++;
+  }
+
+  // Magnet freezes all enemy shooting for its full effect duration.
+  ship.magnetJamUntil = now + MAGNET_DURATION_MS;
+
+  const charge = Math.max(1, absorbed);
+  fireMagnetBall(ship, charge);
+  ship.bonusType = null;
+  ship.bonusExpiry = 0;
+  ship.magnetCharge = 0;
+  createExplosion(ship.x, ship.y, "#66e0ff");
+  playShot("magnet");
 }
 
 function getNearestEnemy(ship, speed) {
@@ -1523,8 +1544,9 @@ function createShip(id, team, x, y, colorOverride) {
     heat: 0, lastFire: 0, active: true, overheated: false,
     bonusType: null, bonusExpiry: 0,
     magnetCharge: 0,
+    magnetJamUntil: 0,
     model: defaultModel,
-    hp: 10, maxHp: 10,
+    hp: 100, maxHp: 100,
   };
 }
 
@@ -1538,17 +1560,18 @@ function createExplosion(x, y, color) {
   state.explosions.push({ particles });
 }
 
+function isShipFireJammed(ship, now) {
+  for (const other of state.ships.values()) {
+    if (!other.active || other.team === ship.team) continue;
+    if ((other.magnetJamUntil || 0) > now) return true;
+  }
+  return false;
+}
+
 // ── Combat ────────────────────────────────────────────────────────────────────
 
 function destroyShip(ship, bulletColor, damage = 1) {
-  // Magnet converts incoming damage into a huge counter projectile.
-  if (ship.bonusType === "magnet") {
-    fireMagnetBall(ship);
-    ship.magnetCharge = 0;
-    createExplosion(ship.x, ship.y, "#66e0ff");
-    return;
-  }
-  // Every ship dies after losing 10 HP (hp reaches 0)
+  // Every ship dies when HP reaches 0.
   if (ship.hp > damage) {
     ship.hp -= damage;
     createExplosion(ship.x, ship.y, ship.team === "enemy" ? "#ff6677" : ship.color);
@@ -1599,6 +1622,13 @@ function fireBullet(ship, now) {
   ship.lastFire = now;
   const speed = getBulletSpeed();
   const type = ship.bonusType;
+
+  if (type === "magnet") {
+    activateMagnetPulse(ship, now);
+    ship.heat = Math.min(MAX_HEAT, ship.heat + SHOT_HEAT * 0.6);
+    if (ship.heat >= MAX_HEAT) ship.overheated = true;
+    return;
+  }
 
   // Default aim: toward nearest enemy, fallback to straight ahead
   const { aimVx, aimVy } = getNearestEnemy(ship, speed);
@@ -1679,14 +1709,11 @@ function updateBonusPills(dt, sec, now) {
       }
 
       if (shipTouchesPill || fingerTouchesPill) {
+        applyCollectedBonus(ship, pill.type);
         if (pill.type === "magnet") {
-          ship.bonusType = "magnet";
-          ship.bonusExpiry = Infinity;
-          const absorbed = state.bullets.length;
-          ship.magnetCharge = Math.max(1, ship.magnetCharge + absorbed);
-          state.bullets.length = 0;
-        } else {
-          applyCollectedBonus(ship, pill.type);
+          // Magnet is a one-shot active bonus available for 10 seconds.
+          ship.bonusExpiry = now + MAGNET_DURATION_MS;
+          ship.magnetCharge = 0;
         }
         state.bonusPills.splice(i, 1);
         playBonusPickup();
@@ -1879,9 +1906,20 @@ function update(dt) {
 
   // ── Heat + auto-fire
   for (const ship of state.ships.values()) {
+    if (ship.bonusType === "magnet" && ship.bonusExpiry > 0 && now >= ship.bonusExpiry) {
+      ship.bonusType = null;
+      ship.bonusExpiry = 0;
+      ship.magnetCharge = 0;
+    }
+
     ship.heat = Math.max(0, ship.heat - COOL_RATE * sec);
     if (ship.overheated && ship.heat <= HEAT_RECOVERY_LEVEL) ship.overheated = false;
     if (!ship.active) continue;
+
+    if (isShipFireJammed(ship, now)) {
+      ship.lastFire = now;
+      continue;
+    }
 
     if (now - ship.lastFire >= getShipFireInterval(ship)) fireBullet(ship, now);
   }
