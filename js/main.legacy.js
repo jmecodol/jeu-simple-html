@@ -401,10 +401,10 @@ function _ctx() {
 // ── Ship drawing ──────────────────────────────────────────────────────────────
 
 const spritePaths = {
-  falcon: "../assets/ships/falcon.svg",
-  xwing: "../assets/ships/xwing.svg",
-  tie: "../assets/ships/tie.svg",
-  deathstar: "../assets/ships/deathstar.svg",
+  falcon: "./assets/ships/falcon.svg",
+  xwing: "./assets/ships/xwing.svg",
+  tie: "./assets/ships/tie.svg",
+  deathstar: "./assets/ships/deathstar.svg",
 };
 
 const spriteCleanupSettings = {
