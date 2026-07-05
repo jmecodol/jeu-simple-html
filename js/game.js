@@ -29,7 +29,7 @@ import { createProjectilesForBonusShot, applyCollectedBonus } from "./bonusRegis
 import { draw } from "./render.js";
 
 const PLAYER_SHIP_STOCK = 50;
-const PLAYER_SHIP_MODELS = ["falcon", "xwing", "deathstar"];
+const PLAYER_SHIP_MODELS = ["falcon", "xwing", "cruiser"];
 const LASER_TICK_INTERVAL = 120;
 
 const BULLET_DAMAGE = {
@@ -174,9 +174,17 @@ function initShipDecks() {
   }
 }
 
-export function consumeShipModel(team) {
+export function consumeShipModel(team, preferredModel = null) {
   const deck = state.shipDecks[team];
   if (!deck || deck.length === 0) return null;
+
+  if (preferredModel) {
+    const preferredIndex = deck.findIndex((model, index) => index < 3 && model === preferredModel);
+    if (preferredIndex >= 0) {
+      return deck.splice(preferredIndex, 1)[0];
+    }
+  }
+
   return deck.shift();
 }
 

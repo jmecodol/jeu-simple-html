@@ -1,24 +1,31 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
   <defs>
     <style>
-      .ln{fill:none;stroke:#3f3f3f;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
-      .fl{fill:#d9d9d9;stroke:#3f3f3f;stroke-width:3;stroke-linejoin:round}
+      .ln{fill:none;stroke:#2f2f2f;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
+      .hl{fill:#ececec;stroke:#2f2f2f;stroke-width:3;stroke-linejoin:round}
+      .dk{fill:#b2b2b2;stroke:#2f2f2f;stroke-width:3;stroke-linejoin:round}
+      .gl{fill:#8ed4ff;stroke:#2f2f2f;stroke-width:2}
+      .en{fill:#ffb56a;stroke:#2f2f2f;stroke-width:2}
     </style>
   </defs>
-  <path class="fl" d="M56 28 L72 28 L80 48 L80 78 L48 78 L48 48 Z"/>
-  <path class="fl" d="M62 20 L66 20 L70 28 L58 28 Z"/>
-  <path class="fl" d="M28 82 L48 70 L52 78 L30 92 Z"/>
-  <path class="fl" d="M100 82 L80 70 L76 78 L98 92 Z"/>
-  <path class="fl" d="M14 102 L50 82 L54 90 L18 110 Z"/>
-  <path class="fl" d="M114 102 L78 82 L74 90 L110 110 Z"/>
-  <path class="fl" d="M44 76 L52 92 L46 104 L36 90 Z"/>
-  <path class="fl" d="M84 76 L76 92 L82 104 L92 90 Z"/>
-  <rect class="fl" x="58" y="56" width="12" height="18" rx="3"/>
-  <circle class="ln" cx="64" cy="66" r="4"/>
-  <path class="ln" d="M56 44 H72"/>
-  <path class="ln" d="M54 86 H74"/>
-  <path class="ln" d="M40 88 L24 96"/>
-  <path class="ln" d="M88 88 L104 96"/>
-  <circle class="fl" cx="28" cy="108" r="3"/>
-  <circle class="fl" cx="100" cy="108" r="3"/>
+
+  <path class="hl" d="M58 18 H70 L78 40 V80 L50 80 V40 Z"/>
+  <path class="gl" d="M58 50 H70 V66 H58 Z"/>
+
+  <path class="hl" d="M50 48 L18 34 L12 46 L48 62 Z"/>
+  <path class="hl" d="M78 48 L110 34 L116 46 L80 62 Z"/>
+  <path class="hl" d="M50 72 L18 92 L24 104 L54 84 Z"/>
+  <path class="hl" d="M78 72 L110 92 L104 104 L74 84 Z"/>
+
+  <path class="dk" d="M44 62 L22 52 L20 58 L42 70 Z"/>
+  <path class="dk" d="M84 62 L106 52 L108 58 L86 70 Z"/>
+
+  <rect class="dk" x="46" y="82" width="10" height="18" rx="3"/>
+  <rect class="dk" x="72" y="82" width="10" height="18" rx="3"/>
+  <circle class="en" cx="51" cy="101" r="3"/>
+  <circle class="en" cx="77" cy="101" r="3"/>
+
+  <path class="ln" d="M64 18 V102"/>
+  <path class="ln" d="M54 38 H74"/>
+  <path class="ln" d="M50 82 H78"/>
 </svg>

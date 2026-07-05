@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <style>
+      .ln{fill:none;stroke:#2f2f2f;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
+      .hl{fill:#d7d7d7;stroke:#2f2f2f;stroke-width:3;stroke-linejoin:round}
+      .dk{fill:#9f9f9f;stroke:#2f2f2f;stroke-width:3;stroke-linejoin:round}
+      .gl{fill:#8ed4ff;stroke:#2f2f2f;stroke-width:2}
+      .en{fill:#ffb56a;stroke:#2f2f2f;stroke-width:2}
+    </style>
+  </defs>
+
+  <path class="hl" d="M64 10 L90 28 L96 58 L92 92 L64 118 L36 92 L32 58 L38 28 Z"/>
+  <path class="dk" d="M64 16 L84 32 L88 58 L84 86 L64 108 L44 86 L40 58 L44 32 Z"/>
+
+  <path class="hl" d="M38 44 L16 54 L16 62 L38 70 Z"/>
+  <path class="hl" d="M90 44 L112 54 L112 62 L90 70 Z"/>
+
+  <path class="dk" d="M46 82 L30 98 L38 106 L50 90 Z"/>
+  <path class="dk" d="M82 82 L98 98 L90 106 L78 90 Z"/>
+
+  <path class="gl" d="M54 36 H74 V52 H54 Z"/>
+  <path class="ln" d="M64 10 V116"/>
+  <path class="ln" d="M48 58 H80"/>
+  <path class="ln" d="M46 74 H82"/>
+  <path class="ln" d="M50 90 H78"/>
+
+  <circle class="en" cx="52" cy="101" r="3"/>
+  <circle class="en" cx="64" cy="105" r="3"/>
+  <circle class="en" cx="76" cy="101" r="3"/>
+</svg>

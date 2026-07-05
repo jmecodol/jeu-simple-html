@@ -22,15 +22,15 @@ const spritePaths = {
   falcon: "./assets/ships/falcon.svg",
   xwing: "./assets/ships/xwing.svg",
   tie: "./assets/ships/tie.svg",
-  deathstar: "./assets/ships/deathstar.svg",
+  cruiser: "./assets/ships/cruiser.svg",
 };
 
 const spriteCleanupSettings = {
-  falcon: { threshold: 32, minSeedAlpha: 1, edgeSoftDist: 14, edgeSoftAlpha: 0.28, alphaClip: 26 },
-  xwing: { threshold: 36, minSeedAlpha: 1, edgeSoftDist: 16, edgeSoftAlpha: 0.22, alphaClip: 28 },
-  tie: { threshold: 44, minSeedAlpha: 1, edgeSoftDist: 18, edgeSoftAlpha: 0.2, alphaClip: 30 },
-  deathstar: { threshold: 30, minSeedAlpha: 1, edgeSoftDist: 14, edgeSoftAlpha: 0.3, alphaClip: 24 },
-  default: { threshold: 36, minSeedAlpha: 1, edgeSoftDist: 16, edgeSoftAlpha: 0.25, alphaClip: 28 },
+  falcon: { threshold: 32, minSeedAlpha: 1, edgeSoftDist: 14, edgeSoftAlpha: 0.28, alphaClip: 26, haloAlpha: 90, alphaHardClip: 96 },
+  xwing: { threshold: 36, minSeedAlpha: 1, edgeSoftDist: 16, edgeSoftAlpha: 0.22, alphaClip: 28, haloAlpha: 90, alphaHardClip: 96 },
+  tie: { threshold: 44, minSeedAlpha: 1, edgeSoftDist: 18, edgeSoftAlpha: 0.2, alphaClip: 30, haloAlpha: 90, alphaHardClip: 96 },
+  cruiser: { threshold: 30, minSeedAlpha: 1, edgeSoftDist: 14, edgeSoftAlpha: 0.3, alphaClip: 24, haloAlpha: 90, alphaHardClip: 96 },
+  default: { threshold: 36, minSeedAlpha: 1, edgeSoftDist: 16, edgeSoftAlpha: 0.25, alphaClip: 28, haloAlpha: 90, alphaHardClip: 96 },
 };
 
 const spriteCache = {};
@@ -85,23 +85,32 @@ function prepareSpriteDrawable(spriteEntry) {
   const imageData = octx.getImageData(0, 0, w, h);
   const data = imageData.data;
   const borderPixels = [];
+  const transparentBorderPixels = [];
   for (let x = 0; x < w; x++) {
-    borderPixels.push(getPixel(data, w, x, 0));
-    borderPixels.push(getPixel(data, w, x, h - 1));
+    const pTop = getPixel(data, w, x, 0);
+    const pBottom = getPixel(data, w, x, h - 1);
+    borderPixels.push(pTop, pBottom);
+    if (pTop.a <= cleanup.minSeedAlpha) transparentBorderPixels.push(pTop);
+    if (pBottom.a <= cleanup.minSeedAlpha) transparentBorderPixels.push(pBottom);
   }
   for (let y = 1; y < h - 1; y++) {
-    borderPixels.push(getPixel(data, w, 0, y));
-    borderPixels.push(getPixel(data, w, w - 1, y));
+    const pLeft = getPixel(data, w, 0, y);
+    const pRight = getPixel(data, w, w - 1, y);
+    borderPixels.push(pLeft, pRight);
+    if (pLeft.a <= cleanup.minSeedAlpha) transparentBorderPixels.push(pLeft);
+    if (pRight.a <= cleanup.minSeedAlpha) transparentBorderPixels.push(pRight);
   }
 
-  const avg = borderPixels.reduce(
+  const bgSamples = transparentBorderPixels.length >= 8 ? transparentBorderPixels : borderPixels;
+
+  const avg = bgSamples.reduce(
     (acc, c) => ({ r: acc.r + c.r, g: acc.g + c.g, b: acc.b + c.b }),
     { r: 0, g: 0, b: 0 }
   );
   const bg = {
-    r: avg.r / borderPixels.length,
-    g: avg.g / borderPixels.length,
-    b: avg.b / borderPixels.length,
+    r: avg.r / bgSamples.length,
+    g: avg.g / bgSamples.length,
+    b: avg.b / bgSamples.length,
   };
 
   const threshold = cleanup.threshold;
@@ -112,7 +121,11 @@ function prepareSpriteDrawable(spriteEntry) {
     const idx = y * w + x;
     if (visited[idx]) return;
     const p = getPixel(data, w, x, y);
-    if (p.a <= cleanup.minSeedAlpha) return;
+    if (p.a <= cleanup.minSeedAlpha) {
+      visited[idx] = 1;
+      queue.push([x, y]);
+      return;
+    }
     if (colorDistance(p, bg) <= threshold) {
       visited[idx] = 1;
       queue.push([x, y]);
@@ -139,6 +152,17 @@ function prepareSpriteDrawable(spriteEntry) {
     if (y < h - 1) enqueueIfBackground(x, y + 1);
   }
 
+  // If the source sprite still carries an opaque matte/background,
+  // aggressively key out colors close to the detected border color.
+  const matteThreshold = threshold + 12;
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i + 3] === 0) continue;
+    const p = { r: data[i], g: data[i + 1], b: data[i + 2] };
+    if (colorDistance(p, bg) <= matteThreshold) {
+      data[i + 3] = 0;
+    }
+  }
+
   for (let i = 0; i < data.length; i += 4) {
     if (data[i + 3] === 0) continue;
     const p = { r: data[i], g: data[i + 1], b: data[i + 2] };
@@ -147,6 +171,42 @@ function prepareSpriteDrawable(spriteEntry) {
       data[i + 3] = Math.round(data[i + 3] * cleanup.edgeSoftAlpha);
     }
     if (data[i + 3] < cleanup.alphaClip) data[i + 3] = 0;
+  }
+
+  // Remove low-alpha haze connected to sprite borders to avoid visible rectangular halos.
+  const haloVisited = new Uint8Array(w * h);
+  const haloQueue = [];
+
+  function enqueueHalo(x, y) {
+    const idx = y * w + x;
+    if (haloVisited[idx]) return;
+    const alpha = data[idx * 4 + 3];
+    if (alpha > cleanup.haloAlpha) return;
+    haloVisited[idx] = 1;
+    haloQueue.push([x, y]);
+  }
+
+  for (let x = 0; x < w; x++) {
+    enqueueHalo(x, 0);
+    enqueueHalo(x, h - 1);
+  }
+  for (let y = 1; y < h - 1; y++) {
+    enqueueHalo(0, y);
+    enqueueHalo(w - 1, y);
+  }
+
+  while (haloQueue.length) {
+    const [x, y] = haloQueue.pop();
+    const pIndex = (y * w + x) * 4;
+    data[pIndex + 3] = 0;
+    if (x > 0) enqueueHalo(x - 1, y);
+    if (x < w - 1) enqueueHalo(x + 1, y);
+    if (y > 0) enqueueHalo(x, y - 1);
+    if (y < h - 1) enqueueHalo(x, y + 1);
+  }
+
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i + 3] < cleanup.alphaHardClip) data[i + 3] = 0;
   }
 
   octx.putImageData(imageData, 0, 0);
@@ -169,14 +229,7 @@ function drawSpriteShip(x, y, spriteName, size, options = {}) {
   if (rotation) ctx.rotate(rotation);
   ctx.drawImage(drawable, -size, -size, size * 2, size * 2);
 
-  if (tintColor) {
-    ctx.globalCompositeOperation = "source-atop";
-    ctx.fillStyle = tintColor;
-    ctx.globalAlpha = 0.18;
-    ctx.fillRect(-size, -size, size * 2, size * 2);
-    ctx.globalCompositeOperation = "source-over";
-    ctx.globalAlpha = 1;
-  }
+  void tintColor;
 
   ctx.restore();
   return true;
