@@ -1,0 +1,22 @@
+name: Verify legacy bundle
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  check-legacy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Verify generated js/main.legacy.js is up-to-date
+        run: npm run check:legacy

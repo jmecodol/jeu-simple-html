@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <style>
+      .ln{fill:none;stroke:#3f3f3f;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
+      .fl{fill:#d9d9d9;stroke:#3f3f3f;stroke-width:3;stroke-linejoin:round}
+    </style>
+  </defs>
+  <path class="fl" d="M64 10 C34 10 16 30 14 58 L14 70 C17 96 37 114 64 118 C91 114 111 96 114 70 L114 58 C112 30 94 10 64 10 Z"/>
+  <rect class="fl" x="58" y="10" width="12" height="26" rx="4"/>
+  <path class="fl" d="M28 38 L48 38 L48 56 L28 56 Z"/>
+  <path class="fl" d="M80 38 L100 38 L100 56 L80 56 Z"/>
+  <circle class="fl" cx="64" cy="56" r="17"/>
+  <circle class="ln" cx="64" cy="56" r="8"/>
+  <path class="ln" d="M14 66 H114"/>
+  <path class="ln" d="M20 80 H108"/>
+  <path class="ln" d="M24 92 H104"/>
+  <path class="ln" d="M36 104 H92"/>
+  <path class="ln" d="M52 116 H76"/>
+  <path class="ln" d="M64 39 V73"/>
+  <path class="ln" d="M47 56 H81"/>
+  <path class="ln" d="M56 48 L72 64"/>
+  <path class="ln" d="M72 48 L56 64"/>
+  <path class="ln" d="M22 58 C28 22 100 22 106 58"/>
+</svg>

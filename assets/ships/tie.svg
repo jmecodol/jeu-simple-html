@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <style>
+      .ln{fill:none;stroke:#3f3f3f;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
+      .fl{fill:#d9d9d9;stroke:#3f3f3f;stroke-width:3;stroke-linejoin:round}
+    </style>
+  </defs>
+  <polygon class="fl" points="14,24 40,16 46,64 40,112 14,104 20,64"/>
+  <polygon class="fl" points="114,24 88,16 82,64 88,112 114,104 108,64"/>
+  <path class="ln" d="M21 32 L38 28"/>
+  <path class="ln" d="M21 52 L42 48"/>
+  <path class="ln" d="M21 76 L42 80"/>
+  <path class="ln" d="M21 96 L38 100"/>
+  <path class="ln" d="M107 32 L90 28"/>
+  <path class="ln" d="M107 52 L86 48"/>
+  <path class="ln" d="M107 76 L86 80"/>
+  <path class="ln" d="M107 96 L90 100"/>
+  <circle class="fl" cx="64" cy="64" r="24"/>
+  <circle class="ln" cx="64" cy="64" r="11"/>
+  <path class="ln" d="M64 40 V88"/>
+  <path class="ln" d="M40 64 H88"/>
+  <path class="ln" d="M55 55 L73 73"/>
+  <path class="ln" d="M73 55 L55 73"/>
+  <rect class="fl" x="46" y="60" width="10" height="8" rx="2"/>
+  <rect class="fl" x="72" y="60" width="10" height="8" rx="2"/>
+</svg>

@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <style>
+      .ln{fill:none;stroke:#3f3f3f;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
+      .fl{fill:#d9d9d9;stroke:#3f3f3f;stroke-width:3;stroke-linejoin:round}
+    </style>
+  </defs>
+  <circle class="fl" cx="64" cy="64" r="54"/>
+  <circle class="fl" cx="42" cy="40" r="16"/>
+  <circle class="ln" cx="42" cy="40" r="8"/>
+  <path class="ln" d="M10 64 H118"/>
+  <path class="ln" d="M10 74 H118"/>
+  <path class="ln" d="M24 24 C44 8 84 8 104 24"/>
+  <path class="ln" d="M16 40 C44 22 84 22 112 40"/>
+  <path class="ln" d="M16 48 C44 30 84 30 112 48"/>
+  <path class="ln" d="M26 96 C48 112 80 112 102 96"/>
+  <path class="ln" d="M30 106 C50 118 78 118 98 106"/>
+  <path class="ln" d="M42 24 V56"/>
+  <path class="ln" d="M34 40 H50"/>
+  <path class="ln" d="M56 10 V118"/>
+  <path class="ln" d="M72 10 V118"/>
+  <path class="ln" d="M88 12 V116"/>
+</svg>
