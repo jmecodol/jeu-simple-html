@@ -1,0 +1,123 @@
+* {
+  box-sizing: border-box;
+}
+
+:root {
+  --bg-1: #0d0d1a;
+  --bg-2: #1a0d2e;
+  --bg-3: #0d1a2e;
+  --panel: #f0eaf8;
+  --ink: #1a1030;
+  --blue: #4fc3f7;
+  --red: #ef5350;
+  --gold: #ffd740;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  color: #fff;
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+  background:
+    radial-gradient(circle at 15% 50%, #1a1a6a 0%, transparent 45%),
+    radial-gradient(circle at 85% 50%, #6a1a1a 0%, transparent 45%),
+    linear-gradient(180deg, var(--bg-1), var(--bg-2) 50%, var(--bg-3));
+  overflow: hidden;
+}
+
+.topbar {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  background: linear-gradient(180deg, #00000088, #0000002a);
+}
+
+.topbar h1 {
+  margin: 0;
+  text-align: center;
+  font-size: clamp(1rem, 3.7vw, 1.35rem);
+  letter-spacing: 0.03em;
+}
+
+.back,
+#restartBtn,
+#startBtn {
+  border: none;
+  border-radius: 999px;
+  padding: 9px 14px;
+  font-weight: 700;
+  font-size: 0.92rem;
+  cursor: pointer;
+}
+
+.back {
+  text-decoration: none;
+  background: #fff;
+  color: #182025;
+}
+
+#restartBtn {
+  background: var(--gold);
+  color: #2a1a00;
+}
+
+.stageWrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+#gameCanvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: #05020fdd;
+}
+
+.overlay.show {
+  display: flex;
+}
+
+.panel {
+  width: min(640px, 95vw);
+  border-radius: 24px;
+  background: var(--panel);
+  color: var(--ink);
+  padding: 20px;
+  text-align: center;
+  box-shadow: 0 16px 50px #00000066;
+}
+
+.panel h2 {
+  margin-top: 0;
+  margin-bottom: 8px;
+}
+
+.panel p {
+  margin-top: 0;
+  margin-bottom: 14px;
+  line-height: 1.6;
+}
+
+#startBtn {
+  background: #5e35b1;
+  color: #fff;
+}

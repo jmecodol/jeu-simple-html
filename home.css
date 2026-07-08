@@ -95,6 +95,11 @@ h1 {
   color: var(--accent-b);
 }
 
+.tagC {
+  background: #e8d9f5;
+  color: #6b2fa0;
+}
+
 .card h2 {
   margin: 0 0 6px;
   font-size: 1.2rem;
