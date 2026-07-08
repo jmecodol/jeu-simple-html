@@ -30,8 +30,6 @@ const state = {
   platformsBottom: [],
   platformsTop: [],
   coins: [],
-  countdown: 180,
-  startTime: 0,
   message: "",
 };
 
@@ -76,8 +74,7 @@ const BASE_COINS = [
 ];
 
 const TOUCH_ALIGN_EPSILON = 10;
-const TOUCH_FLICK_MIN_DY = 12;
-const TOUCH_FLICK_MIN_SPEED = 900;
+const DOUBLE_TAP_MS = 280;
 
 const touchState = {
   p1: {
@@ -85,18 +82,16 @@ const touchState = {
     active: false,
     x: 0,
     y: 0,
-    lastY: 0,
-    lastTime: 0,
     jumpQueued: false,
+    lastTapAt: 0,
   },
   p2: {
     pointerId: null,
     active: false,
     x: 0,
     y: 0,
-    lastY: 0,
-    lastTime: 0,
     jumpQueued: false,
+    lastTapAt: 0,
   },
 };
 
@@ -152,8 +147,6 @@ function resetTouchControlSlot(slot) {
   slot.active = false;
   slot.x = 0;
   slot.y = 0;
-  slot.lastY = 0;
-  slot.lastTime = 0;
   slot.jumpQueued = false;
 }
 
@@ -206,14 +199,15 @@ canvas.addEventListener("pointerdown", (event) => {
   const slot = touchSlotForPlayer(playerIndex);
   if (slot.active) return;
 
+  const isDoubleTap = event.timeStamp - slot.lastTapAt <= DOUBLE_TAP_MS;
+  slot.lastTapAt = event.timeStamp;
+
   canvas.setPointerCapture(event.pointerId);
   slot.pointerId = event.pointerId;
   slot.active = true;
   slot.x = screenPoint.x;
   slot.y = screenPoint.y;
-  slot.lastY = screenPoint.y;
-  slot.lastTime = event.timeStamp;
-  slot.jumpQueued = false;
+  slot.jumpQueued = isDoubleTap;
 });
 
 canvas.addEventListener("pointermove", (event) => {
@@ -221,18 +215,8 @@ canvas.addEventListener("pointermove", (event) => {
   if (!slot) return;
 
   const screenPoint = pointFromEvent(event);
-  const dtMs = Math.max(1, event.timeStamp - slot.lastTime);
-  const dy = screenPoint.y - slot.lastY;
-  const upwardSpeed = ((-dy) / dtMs) * 1000;
-
-  if (dy < -TOUCH_FLICK_MIN_DY && upwardSpeed > TOUCH_FLICK_MIN_SPEED) {
-    slot.jumpQueued = true;
-  }
-
   slot.x = screenPoint.x;
   slot.y = screenPoint.y;
-  slot.lastY = screenPoint.y;
-  slot.lastTime = event.timeStamp;
 });
 
 function releasePointer(event) {
@@ -336,8 +320,6 @@ function makePlayers() {
 
 function resetGame() {
   state.cameraX = 0;
-  state.countdown = 180;
-  state.startTime = performance.now();
   state.message = "";
   makeLevel();
   makePlayers();
@@ -542,20 +524,6 @@ function updateGoal() {
   }
 }
 
-function updateTimer(now) {
-  const elapsed = (now - state.startTime) / 1000;
-  state.countdown = Math.max(0, 180 - elapsed);
-
-  if (state.countdown <= 0) {
-    state.running = false;
-    setOverlay(
-      "Temps ecoule",
-      "Le temps est fini avant que les deux joueurs n'atteignent le drapeau.",
-      "Reessayer"
-    );
-  }
-}
-
 function updateCamera() {
   const center = (state.players[0].x + state.players[1].x) * 0.5;
   state.cameraX = clamp(center - state.width * 0.45, 0, state.world.width - state.width);
@@ -638,13 +606,26 @@ function drawWorld() {
   }
 
   for (const player of state.players) {
+    const drawX = player.x + player.w * 0.5;
+    const drawY = player.y + player.h * 0.5;
+
+    ctx.save();
+    ctx.translate(drawX, drawY);
+    if (player.gravityDir === -1) {
+      ctx.rotate(Math.PI);
+    }
+
+    const sx = -player.w * 0.5;
+    const sy = -player.h * 0.5;
+
     ctx.fillStyle = player.color;
-    ctx.fillRect(player.x, player.y + 8, player.w, player.h - 8);
+    ctx.fillRect(sx, sy + 8, player.w, player.h - 8);
     ctx.fillStyle = player.cap;
-    ctx.fillRect(player.x, player.y, player.w, 12);
+    ctx.fillRect(sx, sy, player.w, 12);
     ctx.fillStyle = "#fff";
-    ctx.fillRect(player.x + 5, player.y + 16, 5, 8);
-    ctx.fillRect(player.x + player.w - 10, player.y + 16, 5, 8);
+    ctx.fillRect(sx + 5, sy + 16, 5, 8);
+    ctx.fillRect(sx + player.w - 10, sy + 16, 5, 8);
+    ctx.restore();
 
     if (player.reachedGoal) {
       ctx.fillStyle = "#24a34a";
@@ -687,13 +668,8 @@ function drawHud() {
   ctx.fillText(`P1:${p1Score}`, hudInset + 8, baseline);
   ctx.fillText(`P2:${p2Score}`, hudInset + 78, baseline);
 
-  const c = Math.ceil(state.countdown);
-  ctx.textAlign = "right";
-  ctx.fillText(`Temps:${c}s`, state.width - hudInset - 8, baseline);
-  ctx.textAlign = "left";
-
   const arrived = state.players.filter((p) => p.reachedGoal).length;
-  const progressX = Math.min(state.width * 0.5 - 42, hudInset + 170);
+  const progressX = Math.min(state.width * 0.5 - 42, hudInset + 150);
   ctx.fillText(`Arrivee:${arrived}/2`, progressX, baseline);
 }
 
@@ -711,7 +687,6 @@ function frame(now) {
     updatePlayer(state.players[1], playerControls(1, state.players[1]), dt);
     updateCoins();
     updateGoal();
-    updateTimer(now);
     updateCamera();
   }
 
@@ -726,4 +701,5 @@ restartBtn.addEventListener("click", start);
 window.addEventListener("resize", resizeCanvas);
 
 resizeCanvas();
+start();
 requestAnimationFrame(frame);
