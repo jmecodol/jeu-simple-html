@@ -4,6 +4,7 @@ const ctx = canvas.getContext("2d");
 const overlay = document.getElementById("overlay");
 const startBtn = document.getElementById("startBtn");
 const restartBtn = document.getElementById("restartBtn");
+const fullscreenBtn = document.getElementById("fullscreenBtn");
 
 const state = {
   running: false,
@@ -74,7 +75,7 @@ const BASE_COINS = [
 ];
 
 const TOUCH_ALIGN_EPSILON = 10;
-const DOUBLE_TAP_MS = 280;
+const DOUBLE_TAP_MS = 560;
 
 const touchState = {
   p1: {
@@ -155,27 +156,9 @@ function resetTouchControls() {
   resetTouchControlSlot(touchState.p2);
 }
 
-function findPlayerIndexAtWorldPoint(worldPoint) {
-  for (let i = 0; i < state.players.length; i += 1) {
-    const player = state.players[i];
-    const hitBox = {
-      x: player.x - 16,
-      y: player.y - 16,
-      w: player.w + 32,
-      h: player.h + 32,
-    };
-
-    if (
-      worldPoint.x >= hitBox.x &&
-      worldPoint.x <= hitBox.x + hitBox.w &&
-      worldPoint.y >= hitBox.y &&
-      worldPoint.y <= hitBox.y + hitBox.h
-    ) {
-      return i;
-    }
-  }
-
-  return -1;
+function playerIndexFromScreenY(y) {
+  const splitY = (state.world.topGroundY + state.world.bottomGroundY) * 0.5;
+  return y <= splitY ? 1 : 0;
 }
 
 function touchSlotForPlayer(index) {
@@ -192,9 +175,7 @@ canvas.addEventListener("pointerdown", (event) => {
   if (!state.running) return;
 
   const screenPoint = pointFromEvent(event);
-  const worldPoint = toWorldPoint(screenPoint);
-  const playerIndex = findPlayerIndexAtWorldPoint(worldPoint);
-  if (playerIndex < 0) return;
+  const playerIndex = playerIndexFromScreenY(screenPoint.y);
 
   const slot = touchSlotForPlayer(playerIndex);
   if (slot.active) return;
@@ -338,6 +319,28 @@ function start() {
   resetTouchControls();
   state.running = true;
   overlay.classList.remove("show");
+}
+
+function isFullscreenActive() {
+  return document.fullscreenElement !== null;
+}
+
+function updateFullscreenButton() {
+  if (!fullscreenBtn) return;
+  fullscreenBtn.textContent = isFullscreenActive() ? "Fenetre" : "Plein ecran";
+}
+
+async function toggleFullscreen() {
+  const target = document.documentElement;
+  try {
+    if (!isFullscreenActive()) {
+      await target.requestFullscreen();
+    } else {
+      await document.exitFullscreen();
+    }
+  } catch (_error) {
+    // Ignore fullscreen API failures on unsupported browsers.
+  }
 }
 
 function setControl(key, pressed) {
@@ -698,8 +701,16 @@ function frame(now) {
 
 startBtn.addEventListener("click", start);
 restartBtn.addEventListener("click", start);
+if (fullscreenBtn) {
+  fullscreenBtn.addEventListener("click", toggleFullscreen);
+}
+document.addEventListener("fullscreenchange", () => {
+  updateFullscreenButton();
+  resizeCanvas();
+});
 window.addEventListener("resize", resizeCanvas);
 
 resizeCanvas();
+updateFullscreenButton();
 start();
 requestAnimationFrame(frame);
