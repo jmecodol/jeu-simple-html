@@ -27,7 +27,6 @@ const state = {
   },
   players: [],
   platforms: [],
-  enemies: [],
   coins: [],
   countdown: 180,
   startTime: 0,
@@ -43,6 +42,8 @@ const keyMap = {
   ArrowRight: "p2Right",
   ArrowUp: "p2Jump",
 };
+
+const BASE_GROUND_Y = 490;
 
 const TOUCH_ALIGN_EPSILON = 10;
 const TOUCH_FLICK_MIN_DY = 12;
@@ -90,6 +91,9 @@ function resizeCanvas() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   state.width = rect.width;
   state.height = rect.height;
+
+  // Keep gameplay area visible on short landscape screens.
+  state.world.groundY = clamp(state.height - 56, 250, BASE_GROUND_Y);
 }
 
 function pointFromEvent(event) {
@@ -149,10 +153,6 @@ function touchSlotForPlayer(index) {
   return index === 0 ? touchState.p1 : touchState.p2;
 }
 
-function playerIndexForSlot(slot) {
-  return slot === touchState.p1 ? 0 : 1;
-}
-
 function touchSlotByPointerId(pointerId) {
   if (touchState.p1.pointerId === pointerId) return touchState.p1;
   if (touchState.p2.pointerId === pointerId) return touchState.p2;
@@ -209,55 +209,36 @@ canvas.addEventListener("pointerup", releasePointer);
 canvas.addEventListener("pointercancel", releasePointer);
 
 function makeLevel() {
+  const yOffset = state.world.groundY - BASE_GROUND_Y;
+  const y = (value) => value + yOffset;
+
   state.platforms = [
-    { x: 120, y: 430, w: 160, h: 18 },
-    { x: 360, y: 380, w: 180, h: 18 },
-    { x: 640, y: 340, w: 140, h: 18 },
-    { x: 860, y: 410, w: 180, h: 18 },
-    { x: 1140, y: 360, w: 190, h: 18 },
-    { x: 1450, y: 315, w: 140, h: 18 },
-    { x: 1670, y: 390, w: 180, h: 18 },
-    { x: 1970, y: 350, w: 150, h: 18 },
-    { x: 2200, y: 410, w: 170, h: 18 },
-    { x: 2470, y: 360, w: 160, h: 18 },
-    { x: 2730, y: 320, w: 170, h: 18 },
+    { x: 120, y: y(430), w: 160, h: 18 },
+    { x: 360, y: y(380), w: 180, h: 18 },
+    { x: 640, y: y(340), w: 140, h: 18 },
+    { x: 860, y: y(410), w: 180, h: 18 },
+    { x: 1140, y: y(360), w: 190, h: 18 },
+    { x: 1450, y: y(315), w: 140, h: 18 },
+    { x: 1670, y: y(390), w: 180, h: 18 },
+    { x: 1970, y: y(350), w: 150, h: 18 },
+    { x: 2200, y: y(410), w: 170, h: 18 },
+    { x: 2470, y: y(360), w: 160, h: 18 },
+    { x: 2730, y: y(320), w: 170, h: 18 },
   ];
 
   state.coins = [
-    { x: 180, y: 390, r: 10, taken: false },
-    { x: 430, y: 340, r: 10, taken: false },
-    { x: 710, y: 300, r: 10, taken: false },
-    { x: 930, y: 370, r: 10, taken: false },
-    { x: 1210, y: 320, r: 10, taken: false },
-    { x: 1510, y: 275, r: 10, taken: false },
-    { x: 1740, y: 350, r: 10, taken: false },
-    { x: 2040, y: 310, r: 10, taken: false },
-    { x: 2260, y: 370, r: 10, taken: false },
-    { x: 2540, y: 320, r: 10, taken: false },
-    { x: 2790, y: 280, r: 10, taken: false },
+    { x: 180, y: y(390), r: 10, taken: false },
+    { x: 430, y: y(340), r: 10, taken: false },
+    { x: 710, y: y(300), r: 10, taken: false },
+    { x: 930, y: y(370), r: 10, taken: false },
+    { x: 1210, y: y(320), r: 10, taken: false },
+    { x: 1510, y: y(275), r: 10, taken: false },
+    { x: 1740, y: y(350), r: 10, taken: false },
+    { x: 2040, y: y(310), r: 10, taken: false },
+    { x: 2260, y: y(370), r: 10, taken: false },
+    { x: 2540, y: y(320), r: 10, taken: false },
+    { x: 2790, y: y(280), r: 10, taken: false },
   ];
-
-  state.enemies = [
-    createEnemy(520, state.world.groundY - 28, 420, 660),
-    createEnemy(1060, state.world.groundY - 28, 920, 1240),
-    createEnemy(1620, state.world.groundY - 28, 1520, 1820),
-    createEnemy(2140, state.world.groundY - 28, 2050, 2340),
-    createEnemy(2700, state.world.groundY - 28, 2580, 2860),
-  ];
-}
-
-function createEnemy(x, y, minX, maxX) {
-  return {
-    x,
-    y,
-    w: 30,
-    h: 28,
-    vx: 90,
-    minX,
-    maxX,
-    alive: true,
-    respawnIn: 0,
-  };
 }
 
 function makePlayers() {
@@ -447,52 +428,6 @@ function gestureControl(slot, player) {
   return { left, right, jump, jumpToward };
 }
 
-function respawnPlayer(player) {
-  player.x = player.spawnX;
-  player.y = player.spawnY;
-  player.vx = 0;
-  player.vy = 0;
-  player.reachedGoal = false;
-  player.score = Math.max(0, player.score - 1);
-}
-
-function updateEnemies(dt) {
-  for (const enemy of state.enemies) {
-    if (!enemy.alive) {
-      enemy.respawnIn -= dt;
-      if (enemy.respawnIn <= 0) {
-        enemy.alive = true;
-      }
-      continue;
-    }
-
-    enemy.x += enemy.vx * dt;
-    if (enemy.x <= enemy.minX) {
-      enemy.x = enemy.minX;
-      enemy.vx = Math.abs(enemy.vx);
-    }
-    if (enemy.x + enemy.w >= enemy.maxX) {
-      enemy.x = enemy.maxX - enemy.w;
-      enemy.vx = -Math.abs(enemy.vx);
-    }
-
-    for (const player of state.players) {
-      if (player.reachedGoal) continue;
-      if (!overlaps(player, enemy)) continue;
-
-      const stomp = player.vy > 120 && player.y + player.h - enemy.y < 18;
-      if (stomp) {
-        enemy.alive = false;
-        enemy.respawnIn = 5;
-        player.vy = -420;
-        player.score += 3;
-      } else {
-        respawnPlayer(player);
-      }
-    }
-  }
-}
-
 function updateCoins() {
   for (const coin of state.coins) {
     if (coin.taken) continue;
@@ -608,18 +543,6 @@ function drawWorld() {
     ctx.stroke();
   }
 
-  for (const enemy of state.enemies) {
-    if (!enemy.alive) continue;
-    ctx.fillStyle = "#7f3f2a";
-    ctx.fillRect(enemy.x, enemy.y, enemy.w, enemy.h);
-    ctx.fillStyle = "#f4dfc6";
-    ctx.fillRect(enemy.x + 4, enemy.y + 9, enemy.w - 8, 10);
-
-    ctx.fillStyle = "#1f150f";
-    ctx.fillRect(enemy.x + 7, enemy.y + 12, 4, 4);
-    ctx.fillRect(enemy.x + enemy.w - 11, enemy.y + 12, 4, 4);
-  }
-
   for (const player of state.players) {
     ctx.fillStyle = player.color;
     ctx.fillRect(player.x, player.y + 8, player.w, player.h - 8);
@@ -646,21 +569,31 @@ function drawWorld() {
 }
 
 function drawHud() {
+  const hudInset = Math.max(8, Math.floor(state.width * 0.012));
+  const hudHeight = state.height < 360 ? 34 : 42;
+  const hudY = 8;
+
   ctx.fillStyle = "#00000059";
-  ctx.fillRect(10, 8, state.width - 20, 42);
+  ctx.fillRect(hudInset, hudY, state.width - hudInset * 2, hudHeight);
 
   ctx.fillStyle = "#fff";
-  ctx.font = "700 16px Trebuchet MS";
-  ctx.fillText(`P1: ${state.players[0]?.score ?? 0}`, 18, 35);
-  ctx.fillText(`P2: ${state.players[1]?.score ?? 0}`, 110, 35);
+  const fontSize = state.height < 360 ? 13 : 16;
+  ctx.font = `700 ${fontSize}px Trebuchet MS`;
+  const baseline = hudY + (hudHeight < 40 ? 23 : 27);
+
+  const p1Score = state.players[0]?.score ?? 0;
+  const p2Score = state.players[1]?.score ?? 0;
+  ctx.fillText(`P1:${p1Score}`, hudInset + 8, baseline);
+  ctx.fillText(`P2:${p2Score}`, hudInset + 78, baseline);
 
   const c = Math.ceil(state.countdown);
   ctx.textAlign = "right";
-  ctx.fillText(`Temps: ${c}s`, state.width - 20, 35);
+  ctx.fillText(`Temps:${c}s`, state.width - hudInset - 8, baseline);
   ctx.textAlign = "left";
 
   const arrived = state.players.filter((p) => p.reachedGoal).length;
-  ctx.fillText(`Arrivee: ${arrived}/2`, 220, 35);
+  const progressX = Math.min(state.width * 0.5 - 42, hudInset + 170);
+  ctx.fillText(`Arrivee:${arrived}/2`, progressX, baseline);
 }
 
 let lastTime = performance.now();
@@ -675,7 +608,6 @@ function frame(now) {
   if (state.running) {
     updatePlayer(state.players[0], playerControls(0, state.players[0]), dt);
     updatePlayer(state.players[1], playerControls(1, state.players[1]), dt);
-    updateEnemies(dt);
     updateCoins();
     updateGoal();
     updateTimer(now);

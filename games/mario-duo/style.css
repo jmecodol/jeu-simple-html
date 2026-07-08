@@ -15,6 +15,7 @@ html,
 body {
   margin: 0;
   height: 100%;
+  overscroll-behavior: none;
 }
 
 body {
@@ -27,6 +28,10 @@ body {
     radial-gradient(circle at 85% 10%, #ffffff66 0 14%, transparent 15%),
     linear-gradient(180deg, var(--sky-1), var(--sky-2));
   overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .topbar {
@@ -34,7 +39,8 @@ body {
   grid-template-columns: auto 1fr auto;
   gap: 10px;
   align-items: center;
-  padding: 10px 12px;
+  padding: calc(8px + env(safe-area-inset-top)) calc(10px + env(safe-area-inset-right)) 8px
+    calc(10px + env(safe-area-inset-left));
   background: #00000033;
   backdrop-filter: blur(2px);
 }
@@ -53,6 +59,7 @@ body {
   padding: 8px 14px;
   font-weight: 700;
   font-size: 0.92rem;
+  touch-action: manipulation;
 }
 
 .back {
@@ -116,4 +123,44 @@ body {
   cursor: pointer;
   background: #2f8a37;
   color: #fff;
+}
+
+@media (orientation: landscape) and (max-height: 500px) {
+  .topbar {
+    gap: 8px;
+    padding-top: calc(4px + env(safe-area-inset-top));
+    padding-bottom: 4px;
+  }
+
+  .topbar h1 {
+    font-size: clamp(0.9rem, 2.8vw, 1.05rem);
+  }
+
+  .back,
+  #restartBtn,
+  #startBtn {
+    padding: 6px 12px;
+    font-size: 0.82rem;
+  }
+
+  .overlay {
+    padding: 10px;
+  }
+
+  .panel {
+    width: min(760px, 96vw);
+    border-radius: 16px;
+    padding: 12px;
+  }
+
+  .panel h2 {
+    margin-bottom: 6px;
+    font-size: clamp(1rem, 3.2vw, 1.2rem);
+  }
+
+  .panel p {
+    margin-bottom: 10px;
+    font-size: 0.9rem;
+    line-height: 1.3;
+  }
 }
