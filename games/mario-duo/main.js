@@ -14,7 +14,8 @@ const state = {
     width: 3200,
     height: 540,
     gravity: 1800,
-    groundY: 490,
+    topGroundY: 72,
+    bottomGroundY: 490,
     finishX: 3020,
   },
   keys: {
@@ -26,7 +27,8 @@ const state = {
     p2Jump: false,
   },
   players: [],
-  platforms: [],
+  platformsBottom: [],
+  platformsTop: [],
   coins: [],
   countdown: 180,
   startTime: 0,
@@ -44,6 +46,34 @@ const keyMap = {
 };
 
 const BASE_GROUND_Y = 490;
+
+const BASE_PLATFORMS = [
+  { x: 120, y: 430, w: 160, h: 18 },
+  { x: 360, y: 380, w: 180, h: 18 },
+  { x: 640, y: 340, w: 140, h: 18 },
+  { x: 860, y: 410, w: 180, h: 18 },
+  { x: 1140, y: 360, w: 190, h: 18 },
+  { x: 1450, y: 315, w: 140, h: 18 },
+  { x: 1670, y: 390, w: 180, h: 18 },
+  { x: 1970, y: 350, w: 150, h: 18 },
+  { x: 2200, y: 410, w: 170, h: 18 },
+  { x: 2470, y: 360, w: 160, h: 18 },
+  { x: 2730, y: 320, w: 170, h: 18 },
+];
+
+const BASE_COINS = [
+  { x: 180, y: 390, r: 10 },
+  { x: 430, y: 340, r: 10 },
+  { x: 710, y: 300, r: 10 },
+  { x: 930, y: 370, r: 10 },
+  { x: 1210, y: 320, r: 10 },
+  { x: 1510, y: 275, r: 10 },
+  { x: 1740, y: 350, r: 10 },
+  { x: 2040, y: 310, r: 10 },
+  { x: 2260, y: 370, r: 10 },
+  { x: 2540, y: 320, r: 10 },
+  { x: 2790, y: 280, r: 10 },
+];
 
 const TOUCH_ALIGN_EPSILON = 10;
 const TOUCH_FLICK_MIN_DY = 12;
@@ -93,7 +123,13 @@ function resizeCanvas() {
   state.height = rect.height;
 
   // Keep gameplay area visible on short landscape screens.
-  state.world.groundY = clamp(state.height - 56, 250, BASE_GROUND_Y);
+  state.world.bottomGroundY = clamp(state.height - 56, 250, BASE_GROUND_Y);
+
+  let topGroundY = state.height < 360 ? 58 : 72;
+  if (state.world.bottomGroundY - topGroundY < 170) {
+    topGroundY = Math.max(34, state.world.bottomGroundY - 170);
+  }
+  state.world.topGroundY = topGroundY;
 }
 
 function pointFromEvent(event) {
@@ -209,36 +245,46 @@ canvas.addEventListener("pointerup", releasePointer);
 canvas.addEventListener("pointercancel", releasePointer);
 
 function makeLevel() {
-  const yOffset = state.world.groundY - BASE_GROUND_Y;
-  const y = (value) => value + yOffset;
+  const bottomOffset = state.world.bottomGroundY - BASE_GROUND_Y;
 
-  state.platforms = [
-    { x: 120, y: y(430), w: 160, h: 18 },
-    { x: 360, y: y(380), w: 180, h: 18 },
-    { x: 640, y: y(340), w: 140, h: 18 },
-    { x: 860, y: y(410), w: 180, h: 18 },
-    { x: 1140, y: y(360), w: 190, h: 18 },
-    { x: 1450, y: y(315), w: 140, h: 18 },
-    { x: 1670, y: y(390), w: 180, h: 18 },
-    { x: 1970, y: y(350), w: 150, h: 18 },
-    { x: 2200, y: y(410), w: 170, h: 18 },
-    { x: 2470, y: y(360), w: 160, h: 18 },
-    { x: 2730, y: y(320), w: 170, h: 18 },
-  ];
+  state.platformsBottom = BASE_PLATFORMS.map((p) => ({
+    x: p.x,
+    y: p.y + bottomOffset,
+    w: p.w,
+    h: p.h,
+  }));
 
-  state.coins = [
-    { x: 180, y: y(390), r: 10, taken: false },
-    { x: 430, y: y(340), r: 10, taken: false },
-    { x: 710, y: y(300), r: 10, taken: false },
-    { x: 930, y: y(370), r: 10, taken: false },
-    { x: 1210, y: y(320), r: 10, taken: false },
-    { x: 1510, y: y(275), r: 10, taken: false },
-    { x: 1740, y: y(350), r: 10, taken: false },
-    { x: 2040, y: y(310), r: 10, taken: false },
-    { x: 2260, y: y(370), r: 10, taken: false },
-    { x: 2540, y: y(320), r: 10, taken: false },
-    { x: 2790, y: y(280), r: 10, taken: false },
-  ];
+  state.platformsTop = BASE_PLATFORMS.map((p) => {
+    const distFromBaseGround = BASE_GROUND_Y - p.y;
+    return {
+      x: p.x,
+      y: state.world.topGroundY + distFromBaseGround,
+      w: p.w,
+      h: p.h,
+    };
+  });
+
+  state.coins = [];
+
+  for (const coin of BASE_COINS) {
+    const distFromBaseGround = BASE_GROUND_Y - coin.y;
+
+    state.coins.push({
+      x: coin.x,
+      y: coin.y + bottomOffset,
+      r: coin.r,
+      lane: "bottom",
+      taken: false,
+    });
+
+    state.coins.push({
+      x: coin.x,
+      y: state.world.topGroundY + distFromBaseGround,
+      r: coin.r,
+      lane: "top",
+      taken: false,
+    });
+  }
 }
 
 function makePlayers() {
@@ -248,15 +294,17 @@ function makePlayers() {
       color: "#d4413d",
       cap: "#f3c356",
       x: 30,
-      y: state.world.groundY - 48,
+      y: state.world.bottomGroundY - 48,
       spawnX: 30,
-      spawnY: state.world.groundY - 48,
+      spawnY: state.world.bottomGroundY - 48,
       w: 30,
       h: 48,
       vx: 0,
       vy: 0,
       speed: 290,
       jumpSpeed: 720,
+      gravityDir: 1,
+      lane: "bottom",
       onGround: false,
       score: 0,
       reachedGoal: false,
@@ -267,15 +315,17 @@ function makePlayers() {
       color: "#2c5be2",
       cap: "#89d8f7",
       x: 80,
-      y: state.world.groundY - 48,
+      y: state.world.topGroundY,
       spawnX: 80,
-      spawnY: state.world.groundY - 48,
+      spawnY: state.world.topGroundY,
       w: 30,
       h: 48,
       vx: 0,
       vy: 0,
       speed: 290,
       jumpSpeed: 720,
+      gravityDir: -1,
+      lane: "top",
       onGround: false,
       score: 0,
       reachedGoal: false,
@@ -339,7 +389,7 @@ function updatePlayer(player, controls, dt) {
   player.vx = move * player.speed;
 
   if (controls.jump && player.onGround && !player.jumpLatch) {
-    player.vy = -player.jumpSpeed;
+    player.vy = -player.jumpSpeed * player.gravityDir;
     if (controls.jumpToward !== 0) {
       player.vx = controls.jumpToward * player.speed;
     }
@@ -351,7 +401,10 @@ function updatePlayer(player, controls, dt) {
     player.jumpLatch = false;
   }
 
-  player.vy += state.world.gravity * dt;
+  const prevX = player.x;
+  const prevY = player.y;
+
+  player.vy += state.world.gravity * player.gravityDir * dt;
 
   player.x += player.vx * dt;
   player.x = clamp(player.x, 0, state.world.width - player.w);
@@ -359,27 +412,47 @@ function updatePlayer(player, controls, dt) {
   player.y += player.vy * dt;
   player.onGround = false;
 
-  if (player.y + player.h >= state.world.groundY) {
-    player.y = state.world.groundY - player.h;
+  if (player.gravityDir === 1) {
+    if (player.y + player.h >= state.world.bottomGroundY) {
+      player.y = state.world.bottomGroundY - player.h;
+      player.vy = 0;
+      player.onGround = true;
+    }
+  } else if (player.y <= state.world.topGroundY) {
+    player.y = state.world.topGroundY;
     player.vy = 0;
     player.onGround = true;
   }
 
-  for (const platform of state.platforms) {
+  const lanePlatforms = player.gravityDir === 1 ? state.platformsBottom : state.platformsTop;
+  for (const platform of lanePlatforms) {
     const touching = overlaps(player, platform);
     if (!touching) continue;
 
-    const fromAbove = player.vy >= 0 && player.y + player.h - player.vy * dt <= platform.y + 8;
-    if (fromAbove) {
-      player.y = platform.y - player.h;
-      player.vy = 0;
-      player.onGround = true;
-      continue;
+    if (player.gravityDir === 1) {
+      const prevBottom = prevY + player.h;
+      const fromAbove = player.vy >= 0 && prevBottom <= platform.y + 8;
+      if (fromAbove) {
+        player.y = platform.y - player.h;
+        player.vy = 0;
+        player.onGround = true;
+        continue;
+      }
+    } else {
+      const prevTop = prevY;
+      const platformBottom = platform.y + platform.h;
+      const fromBelow = player.vy <= 0 && prevTop >= platformBottom - 8;
+      if (fromBelow) {
+        player.y = platformBottom;
+        player.vy = 0;
+        player.onGround = true;
+        continue;
+      }
     }
 
-    if (player.vx > 0) {
+    if (player.vx > 0 && prevX + player.w <= platform.x + 4) {
       player.x = platform.x - player.w;
-    } else if (player.vx < 0) {
+    } else if (player.vx < 0 && prevX >= platform.x + platform.w - 4) {
       player.x = platform.x + platform.w;
     }
   }
@@ -433,6 +506,8 @@ function updateCoins() {
     if (coin.taken) continue;
 
     for (const player of state.players) {
+      if (player.lane !== coin.lane) continue;
+
       const box = {
         x: coin.x - coin.r,
         y: coin.y - coin.r,
@@ -506,7 +581,19 @@ function drawSky() {
 }
 
 function drawGround() {
-  const groundTop = state.world.groundY;
+  const groundTop = state.world.bottomGroundY;
+  const topGroundBottom = state.world.topGroundY;
+
+  ctx.fillStyle = "#8f5b35";
+  ctx.fillRect(0, 0, state.width, topGroundBottom);
+
+  ctx.fillStyle = "#7ccf63";
+  ctx.fillRect(0, topGroundBottom, state.width, 12);
+
+  ctx.fillStyle = "#7a4928";
+  for (let i = 0; i < state.width; i += 26) {
+    ctx.fillRect(i + ((Math.floor(i / 26) % 2) * 8), topGroundBottom - 10, 18, 10);
+  }
 
   ctx.fillStyle = "#7ccf63";
   ctx.fillRect(0, groundTop - 12, state.width, 12);
@@ -524,11 +611,18 @@ function drawWorld() {
   ctx.save();
   ctx.translate(-state.cameraX, 0);
 
-  for (const platform of state.platforms) {
+  for (const platform of state.platformsBottom) {
     ctx.fillStyle = "#ca7f39";
     ctx.fillRect(platform.x, platform.y, platform.w, platform.h);
     ctx.fillStyle = "#f7cb6f";
     ctx.fillRect(platform.x + 2, platform.y + 2, platform.w - 4, 4);
+  }
+
+  for (const platform of state.platformsTop) {
+    ctx.fillStyle = "#ca7f39";
+    ctx.fillRect(platform.x, platform.y, platform.w, platform.h);
+    ctx.fillStyle = "#f7cb6f";
+    ctx.fillRect(platform.x + 2, platform.y + platform.h - 6, platform.w - 4, 4);
   }
 
   for (const coin of state.coins) {
@@ -559,11 +653,18 @@ function drawWorld() {
   }
 
   ctx.fillStyle = "#4f4f4f";
-  ctx.fillRect(state.world.finishX, state.world.groundY - 170, 8, 170);
+  ctx.fillRect(state.world.finishX, state.world.bottomGroundY - 170, 8, 170);
   ctx.fillStyle = "#3eb75e";
-  ctx.fillRect(state.world.finishX + 8, state.world.groundY - 170, 46, 24);
+  ctx.fillRect(state.world.finishX + 8, state.world.bottomGroundY - 170, 46, 24);
   ctx.fillStyle = "#fff";
-  ctx.fillRect(state.world.finishX + 25, state.world.groundY - 160, 6, 6);
+  ctx.fillRect(state.world.finishX + 25, state.world.bottomGroundY - 160, 6, 6);
+
+  ctx.fillStyle = "#4f4f4f";
+  ctx.fillRect(state.world.finishX, state.world.topGroundY, 8, 170);
+  ctx.fillStyle = "#3eb75e";
+  ctx.fillRect(state.world.finishX + 8, state.world.topGroundY + 146, 46, 24);
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(state.world.finishX + 25, state.world.topGroundY + 156, 6, 6);
 
   ctx.restore();
 }
