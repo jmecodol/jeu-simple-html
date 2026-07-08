@@ -26,7 +26,7 @@ export const state = {
   bonusSpawnTimer: BONUS_SPAWN_INTERVAL,
 
   // ── Game mode ──────────────────────────────────────────────────────────────
-  // null = menu  |  "pvp" = duel  |  "coop" = team vs enemies
+  // null = menu  |  "pvp" = duel  |  "coop" = team vs enemies  |  "campaign" = solo
   gameMode: null,
 
   // ── PvP state ──────────────────────────────────────────────────────────────
@@ -49,6 +49,18 @@ export const state = {
   coopEnemySpawnList: [],
   coopEnemySpawnTimer: 0,
   coopEnemyIdCounter: 0,
+
+  // ── Campaign state ─────────────────────────────────────────────────────────
+  campaignPhase: "playing",
+  campaignVictory: false,
+  campaignElapsedMs: 0,
+  campaignStartTime: 0,
+  campaignKills: 0,
+  campaignPlayerDeaths: 0,
+  campaignEnemySpawnTimer: 0,
+  campaignEnemyIdCounter: 0,
+  campaignBossesSpawned: false,
+  campaignBossesDefeated: 0,
 
   // ── Misc ───────────────────────────────────────────────────────────────────
   lastTime: 0,

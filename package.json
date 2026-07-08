@@ -4,8 +4,8 @@
   "version": "1.0.0",
   "description": "Guerre Spatiale - build helpers",
   "scripts": {
-    "build:legacy": "node scripts/build-legacy.mjs",
-    "check:legacy": "npm run build:legacy && git diff --exit-code -- js/main.legacy.js",
+    "build:legacy": "node games/guerre-spatiale/scripts/build-legacy.mjs",
+    "check:legacy": "npm run build:legacy && git diff --exit-code -- games/guerre-spatiale/js/main.legacy.js",
     "build": "npm run build:legacy"
   }
 }

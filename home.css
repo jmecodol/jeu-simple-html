@@ -1,0 +1,106 @@
+:root {
+  --bg-1: #f4e8d0;
+  --bg-2: #d8eee6;
+  --ink: #1f2d3a;
+  --card-1: #fff8e7;
+  --card-2: #fef3f0;
+  --accent-a: #18685c;
+  --accent-b: #a45f19;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 8% 8%, #ffffffcc 0 20%, transparent 21%),
+    radial-gradient(circle at 92% 12%, #ffffff99 0 16%, transparent 17%),
+    linear-gradient(135deg, var(--bg-1), var(--bg-2));
+  display: grid;
+  place-items: center;
+  padding: 18px;
+}
+
+.menu {
+  width: min(900px, 100%);
+  border-radius: 28px;
+  background: #ffffffd4;
+  backdrop-filter: blur(4px);
+  box-shadow: 0 24px 50px #00000026;
+  padding: clamp(18px, 4vw, 34px);
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(1.5rem, 5vw, 2.4rem);
+}
+
+.subtitle {
+  margin-top: 6px;
+  margin-bottom: 18px;
+  color: #2f4355;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 14px;
+}
+
+.card {
+  border-radius: 20px;
+  text-decoration: none;
+  color: inherit;
+  padding: 16px;
+  background: var(--card-1);
+  border: 2px solid #0000000f;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.card:nth-child(2) {
+  background: var(--card-2);
+}
+
+.card:hover,
+.card:focus-visible {
+  transform: translateY(-4px);
+  box-shadow: 0 14px 24px #00000020;
+}
+
+.gameTag {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 5px 8px;
+  border-radius: 999px;
+  margin-bottom: 10px;
+}
+
+.tagA {
+  background: #d9f5ef;
+  color: var(--accent-a);
+}
+
+.tagB {
+  background: #ffe8ce;
+  color: var(--accent-b);
+}
+
+.card h2 {
+  margin: 0 0 6px;
+  font-size: 1.2rem;
+}
+
+.card p {
+  margin: 0;
+  line-height: 1.4;
+}

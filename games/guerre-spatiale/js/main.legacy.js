@@ -32,6 +32,14 @@ const COOP_ENEMY_BASE_HP = 6;
 const COOP_ENEMY_HP_PER_WAVE = 2;
 const COOP_MAX_PLAYER_DEATHS = 10;
 
+// ── Campaign ─────────────────────────────────────────────────────────────────
+const CAMPAIGN_BOSS_SPAWN_DELAY_MS = 60000;
+const CAMPAIGN_ENEMY_SPAWN_INTERVAL = 850;
+const CAMPAIGN_MAX_PLAYER_DEATHS = 8;
+const CAMPAIGN_BOSS_COUNT = 2;
+const CAMPAIGN_BOSS_HP_MULTIPLIER = 2;
+const CAMPAIGN_BOSS_HP_BAR_WIDTH_MULTIPLIER = 2;
+
 // ── Bonus pills ───────────────────────────────────────────────────────────────
 const BONUS_PILL_RADIUS = 14;
 const BONUS_PILL_SPEED = 65;
@@ -189,7 +197,7 @@ const state = {
   bonusSpawnTimer: BONUS_SPAWN_INTERVAL,
 
   // ── Game mode ──────────────────────────────────────────────────────────────
-  // null = menu  |  "pvp" = duel  |  "coop" = team vs enemies
+  // null = menu  |  "pvp" = duel  |  "coop" = team vs enemies  |  "campaign" = solo
   gameMode: null,
 
   // ── PvP state ──────────────────────────────────────────────────────────────
@@ -212,6 +220,18 @@ const state = {
   coopEnemySpawnList: [],
   coopEnemySpawnTimer: 0,
   coopEnemyIdCounter: 0,
+
+  // ── Campaign state ─────────────────────────────────────────────────────────
+  campaignPhase: "playing",
+  campaignVictory: false,
+  campaignElapsedMs: 0,
+  campaignStartTime: 0,
+  campaignKills: 0,
+  campaignPlayerDeaths: 0,
+  campaignEnemySpawnTimer: 0,
+  campaignEnemyIdCounter: 0,
+  campaignBossesSpawned: false,
+  campaignBossesDefeated: 0,
 
   // ── Misc ───────────────────────────────────────────────────────────────────
   lastTime: 0,
@@ -1319,6 +1339,7 @@ const PLAYER_SHIP_STOCK = 50;
 const PLAYER_SHIP_MODELS = ["falcon", "xwing", "cruiser"];
 const LASER_TICK_INTERVAL = 220;
 const MAGNET_DURATION_MS = 10000;
+const MAGNET_ARM_DELAY_MS = 4000;
 
 const BULLET_DAMAGE = {
   normal: 1,
@@ -1331,6 +1352,8 @@ const BULLET_DAMAGE = {
   nova: 3,
   nova_shard: 2,
   magnet_ball: 10,
+  boss_missile: 3,
+  boss_missile_heavy: 6,
 };
 
 // ── Geometry helpers ──────────────────────────────────────────────────────────
@@ -1355,7 +1378,10 @@ function getFireInterval() {
 
 function getShipFireInterval(ship) {
   const base = getFireInterval();
-  if (ship.team === "enemy") return Math.max(60, base * COOP_ENEMY_FIRE_RATE_MULTIPLIER);
+  if (ship.team === "enemy") {
+    const enemyRate = ship.isBoss ? COOP_ENEMY_FIRE_RATE_MULTIPLIER * 0.72 : COOP_ENEMY_FIRE_RATE_MULTIPLIER;
+    return Math.max(60, base * enemyRate);
+  }
   // Rapid now fires 2x faster than the previous rapid behavior.
   if (ship.bonusType === "rapid" || ship.bonusType === "triple") return base * 0.21;
   // Burst(4) and scatter(5): +100% fire rate.
@@ -1371,6 +1397,24 @@ function getShipFireInterval(ship) {
 
 function getBulletDamage(btype) {
   return BULLET_DAMAGE[btype] || 1;
+}
+
+function getEnemyHpForLevel(level) {
+  return COOP_ENEMY_BASE_HP + Math.max(0, level - 1) * COOP_ENEMY_HP_PER_WAVE;
+}
+
+function makeEnemyShip(id, x, y, hp, options = {}) {
+  const ship = createShip(id, "enemy", x, y, options.color || COOP_ENEMY_COLOR);
+  ship.hp = hp;
+  ship.maxHp = hp;
+  ship.lastFire = performance.now() + 800 + Math.random() * 600;
+  ship.enemyKind = options.enemyKind || "grunt";
+  ship.isBoss = !!options.isBoss;
+  ship.sizeMultiplier = options.sizeMultiplier || 1;
+  ship.hpBarWidthMultiplier = options.hpBarWidthMultiplier || 1;
+  ship.missilePowerMultiplier = options.missilePowerMultiplier || 1;
+  ship.baseColor = ship.color;
+  return ship;
 }
 
 function fireMagnetBall(ship, charge) {
@@ -1389,6 +1433,33 @@ function fireMagnetBall(ship, charge) {
     btype: "magnet_ball",
     damage: damageScale,
     radius: radiusScale,
+  });
+}
+
+function fireBossMissile(ship) {
+  const speed = getBulletSpeed() * (0.75 + Math.random() * 0.55);
+  const { nearest, aimVx, aimVy } = getNearestEnemy(ship, speed);
+  const angle = Math.atan2(nearest ? aimVy : teamDir(ship.team) * speed, nearest ? aimVx : 0);
+  const spread = (Math.random() - 0.5) * 0.22;
+  const vx = Math.cos(angle + spread) * speed;
+  const vy = Math.sin(angle + spread) * speed;
+
+  const heavyRoll = Math.random();
+  const isHeavy = heavyRoll > 0.72;
+  const baseDamage = isHeavy ? getBulletDamage("boss_missile_heavy") : getBulletDamage("boss_missile");
+  const damage = Math.max(2, Math.round(baseDamage * ship.missilePowerMultiplier));
+  const radius = isHeavy ? BULLET_RADIUS * 1.75 : BULLET_RADIUS * 1.2;
+
+  state.bullets.push({
+    x: ship.x,
+    y: ship.y,
+    vx,
+    vy,
+    color: ship.color,
+    ownerTeam: ship.team,
+    btype: isHeavy ? "boss_missile_heavy" : "boss_missile",
+    damage,
+    radius,
   });
 }
 
@@ -1495,6 +1566,10 @@ function initShipDecks() {
     state.shipDecks.top = [];
     state.shipDecks.bottom = [];
     state.shipDecks.player = createShipDeck(PLAYER_SHIP_STOCK);
+  } else if (state.gameMode === "campaign") {
+    state.shipDecks.top = [];
+    state.shipDecks.bottom = createShipDeck(PLAYER_SHIP_STOCK);
+    state.shipDecks.player = [];
   }
 }
 function consumeShipModel(team, preferredModel = null) {
@@ -1544,8 +1619,15 @@ function createShip(id, team, x, y, colorOverride) {
     heat: 0, lastFire: 0, active: true, overheated: false,
     bonusType: null, bonusExpiry: 0,
     magnetCharge: 0,
+    magnetReadyAt: 0,
     magnetJamUntil: 0,
     model: defaultModel,
+    enemyKind: null,
+    isBoss: false,
+    sizeMultiplier: 1,
+    hpBarWidthMultiplier: 1,
+    missilePowerMultiplier: 1,
+    baseColor: color,
     hp: 100, maxHp: 100,
   };
 }
@@ -1602,6 +1684,30 @@ function destroyShip(ship, bulletColor, damage = 1) {
     return;
   }
 
+  if (state.gameMode === "campaign") {
+    if (ship.team === "enemy") {
+      state.campaignKills++;
+      if (ship.isBoss) state.campaignBossesDefeated++;
+      if (
+        state.campaignBossesSpawned &&
+        state.campaignBossesDefeated >= CAMPAIGN_BOSS_COUNT &&
+        state.campaignPhase === "playing"
+      ) {
+        state.campaignPhase = "matchEnd";
+        state.campaignVictory = true;
+        document.getElementById("replayButton").style.display = "block";
+      }
+    } else if (ship.team === "bottom") {
+      state.campaignPlayerDeaths++;
+      if (state.campaignPlayerDeaths >= CAMPAIGN_MAX_PLAYER_DEATHS && state.campaignPhase === "playing") {
+        state.campaignPhase = "matchEnd";
+        state.campaignVictory = false;
+        document.getElementById("replayButton").style.display = "block";
+      }
+    }
+    return;
+  }
+
   // PvP
   const winningTeam = ship.team === "top" ? "bottom" : "top";
   state.teamWins[winningTeam] += 1;
@@ -1623,7 +1729,14 @@ function fireBullet(ship, now) {
   const speed = getBulletSpeed();
   const type = ship.bonusType;
 
+  if (ship.team === "enemy" && ship.isBoss) {
+    fireBossMissile(ship);
+    ship.heat = Math.min(MAX_HEAT, ship.heat + SHOT_HEAT * 0.4);
+    return;
+  }
+
   if (type === "magnet") {
+    if (now < (ship.magnetReadyAt || 0)) return;
     activateMagnetPulse(ship, now);
     ship.heat = Math.min(MAX_HEAT, ship.heat + SHOT_HEAT * 0.6);
     if (ship.heat >= MAX_HEAT) ship.overheated = true;
@@ -1770,6 +1883,52 @@ function startNextCoopWave() {
   startCoopWave(state.coopWave + 1);
 }
 
+function startCampaignRun() {
+  state.currentLevel = 1;
+  state.campaignPhase = "playing";
+  state.campaignVictory = false;
+  state.campaignElapsedMs = 0;
+  state.campaignStartTime = performance.now();
+  state.campaignKills = 0;
+  state.campaignPlayerDeaths = 0;
+  state.campaignEnemySpawnTimer = 500;
+  state.campaignEnemyIdCounter = 0;
+  state.campaignBossesSpawned = false;
+  state.campaignBossesDefeated = 0;
+}
+
+function spawnCampaignEnemy() {
+  const margin = 72;
+  const x = margin + Math.random() * (state.canvas.width - margin * 2);
+  const y = state.canvas.height * 0.14 + Math.random() * state.canvas.height * 0.3;
+  const hp = getEnemyHpForLevel(state.currentLevel);
+  const id = `enemy_${state.campaignEnemyIdCounter++}`;
+  const ship = makeEnemyShip(id, x, y, hp, {
+    enemyKind: "grunt",
+  });
+  state.ships.set(id, ship);
+}
+
+function spawnCampaignBosses() {
+  const spacing = state.canvas.width / (CAMPAIGN_BOSS_COUNT + 1);
+  const y = state.canvas.height * 0.15;
+  const hp = Math.round(getEnemyHpForLevel(state.currentLevel) * CAMPAIGN_BOSS_HP_MULTIPLIER);
+
+  for (let i = 0; i < CAMPAIGN_BOSS_COUNT; i++) {
+    const x = spacing * (i + 1);
+    const id = `enemy_boss_${state.campaignEnemyIdCounter++}`;
+    const boss = makeEnemyShip(id, x, y, hp, {
+      enemyKind: "boss",
+      isBoss: true,
+      sizeMultiplier: 1.35,
+      hpBarWidthMultiplier: CAMPAIGN_BOSS_HP_BAR_WIDTH_MULTIPLIER,
+      missilePowerMultiplier: 1.25,
+      color: "#ff6688",
+    });
+    state.ships.set(id, boss);
+  }
+}
+
 // ── Public: canvas resize ─────────────────────────────────────────────────────
 function resize() {
   const rect = state.canvas.getBoundingClientRect();
@@ -1803,6 +1962,8 @@ function resetGame() {
     state.coopEnemySpawnTimer = 0;
     state.coopEnemyIdCounter = 0;
     startCoopWave(1);
+  } else if (state.gameMode === "campaign") {
+    startCampaignRun();
   }
 }
 function showMenu() {
@@ -1841,6 +2002,8 @@ function update(dt) {
       return;
     }
     if (state.coopWavePhase === "matchEnd") return;
+  } else if (state.gameMode === "campaign") {
+    if (state.campaignPhase === "matchEnd") return;
   }
 
   const now = performance.now();
@@ -1900,6 +2063,56 @@ function update(dt) {
           state.coopWavePhase = "waveEnd";
           state.coopWaveEndTimer = COOP_WAVE_END_DURATION;
         }
+      }
+    }
+  }
+
+  // ── Campaign: continuous invasion + delayed bosses
+  if (state.gameMode === "campaign") {
+    state.campaignElapsedMs = now - state.campaignStartTime;
+    state.currentLevel = 1 + Math.floor(state.campaignElapsedMs / 20000);
+
+    if (!state.campaignBossesSpawned) {
+      state.campaignEnemySpawnTimer -= dt;
+      if (state.campaignEnemySpawnTimer <= 0) {
+        spawnCampaignEnemy();
+        state.campaignEnemySpawnTimer = CAMPAIGN_ENEMY_SPAWN_INTERVAL;
+      }
+
+      if (state.campaignElapsedMs >= CAMPAIGN_BOSS_SPAWN_DELAY_MS) {
+        state.campaignBossesSpawned = true;
+        spawnCampaignBosses();
+      }
+    }
+
+    for (const ship of state.ships.values()) {
+      if (ship.team !== "enemy") continue;
+      let targetX = ship.x;
+      let targetY = state.canvas.height * 0.84;
+      let minDist = Infinity;
+      let targetShip = null;
+      for (const other of state.ships.values()) {
+        if (other.team !== "bottom") continue;
+        const dx = other.x - ship.x;
+        const dy = other.y - ship.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < minDist) {
+          minDist = dist;
+          targetX = other.x;
+          targetY = other.y;
+          targetShip = other;
+        }
+      }
+      const dx = targetX - ship.x;
+      const dy = targetY - ship.y;
+      const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+      const speed = COOP_ENEMY_BASE_MOVE_SPEED * (1 + Math.min(1.3, (state.currentLevel - 1) * 0.12));
+      if (dist > 56) {
+        ship.x = clampX(ship.x + (dx / dist) * speed * sec);
+        ship.y = clampY(ship.y + (dy / dist) * speed * sec);
+      }
+      if (targetShip && minDist <= SHIP_HIT_RADIUS * 0.95 && targetShip.active) {
+        destroyShip(targetShip, ship.color, ship.isBoss ? 3 : 2);
       }
     }
   }
@@ -2037,7 +2250,9 @@ function setupInput() {
     unlockAudio();
     const isPlaying = state.gameMode === "pvp"
       ? state.gamePhase === "playing"
-      : state.coopWavePhase === "playing";
+      : state.gameMode === "coop"
+        ? state.coopWavePhase === "playing"
+        : state.campaignPhase === "playing";
     if (state.gameMode === null || !isPlaying) return;
 
     const rect = canvas.getBoundingClientRect();
@@ -2048,7 +2263,9 @@ function setupInput() {
 
     const team = state.gameMode === "coop"
       ? "player"
-      : (y < canvas.height / 2 ? "top" : "bottom");
+      : state.gameMode === "campaign"
+        ? "bottom"
+        : (y < canvas.height / 2 ? "top" : "bottom");
 
     const shipId = `touch_${e.pointerId}`;
     if (state.ships.has(shipId)) return;
@@ -2093,6 +2310,7 @@ function setupInput() {
 
   document.getElementById("btnPvp").addEventListener("click", () => startGame("pvp"));
   document.getElementById("btnCoop").addEventListener("click", () => startGame("coop"));
+  document.getElementById("btnCampaign").addEventListener("click", () => startGame("campaign"));
   document.getElementById("replayButton").addEventListener("click", showMenu);
 }
 

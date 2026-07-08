@@ -54,7 +54,9 @@ export function setupInput() {
     unlockAudio();
     const isPlaying = state.gameMode === "pvp"
       ? state.gamePhase === "playing"
-      : state.coopWavePhase === "playing";
+      : state.gameMode === "coop"
+        ? state.coopWavePhase === "playing"
+        : state.campaignPhase === "playing";
     if (state.gameMode === null || !isPlaying) return;
 
     const rect = canvas.getBoundingClientRect();
@@ -65,7 +67,9 @@ export function setupInput() {
 
     const team = state.gameMode === "coop"
       ? "player"
-      : (y < canvas.height / 2 ? "top" : "bottom");
+      : state.gameMode === "campaign"
+        ? "bottom"
+        : (y < canvas.height / 2 ? "top" : "bottom");
 
     const shipId = `touch_${e.pointerId}`;
     if (state.ships.has(shipId)) return;
@@ -110,5 +114,6 @@ export function setupInput() {
 
   document.getElementById("btnPvp").addEventListener("click", () => startGame("pvp"));
   document.getElementById("btnCoop").addEventListener("click", () => startGame("coop"));
+  document.getElementById("btnCampaign").addEventListener("click", () => startGame("campaign"));
   document.getElementById("replayButton").addEventListener("click", showMenu);
 }
