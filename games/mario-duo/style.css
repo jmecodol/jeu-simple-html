@@ -1,0 +1,119 @@
+* {
+  box-sizing: border-box;
+}
+
+:root {
+  --sky-1: #5ec5ff;
+  --sky-2: #c9efff;
+  --hill: #88c364;
+  --dirt: #8d5a35;
+  --ink: #1f1c1b;
+  --panel: #fff3de;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  color: #fff;
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+  background:
+    radial-gradient(circle at 20% 0%, #ffffff88 0 18%, transparent 19%),
+    radial-gradient(circle at 85% 10%, #ffffff66 0 14%, transparent 15%),
+    linear-gradient(180deg, var(--sky-1), var(--sky-2));
+  overflow: hidden;
+}
+
+.topbar {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  background: #00000033;
+  backdrop-filter: blur(2px);
+}
+
+.topbar h1 {
+  margin: 0;
+  text-align: center;
+  font-size: clamp(1rem, 3.6vw, 1.3rem);
+}
+
+.back,
+#restartBtn,
+#startBtn {
+  border: none;
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-weight: 700;
+  font-size: 0.92rem;
+}
+
+.back {
+  text-decoration: none;
+  background: #fff;
+  color: #2b1c14;
+}
+
+#restartBtn {
+  background: #ffd89a;
+  color: #3d2407;
+}
+
+.stageWrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+#gameCanvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: #001225aa;
+}
+
+.overlay.show {
+  display: flex;
+}
+
+.panel {
+  width: min(620px, 94vw);
+  border-radius: 22px;
+  background: var(--panel);
+  color: var(--ink);
+  padding: 20px;
+  text-align: center;
+  box-shadow: 0 16px 40px #0000004d;
+}
+
+.panel h2 {
+  margin: 0 0 8px;
+}
+
+.panel p {
+  margin: 0 0 14px;
+  line-height: 1.45;
+}
+
+#startBtn {
+  cursor: pointer;
+  background: #2f8a37;
+  color: #fff;
+}

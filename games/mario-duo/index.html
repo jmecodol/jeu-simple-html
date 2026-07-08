@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mario Duo</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="back" href="../../index.html"><- Menu</a>
+      <h1>Mario Duo</h1>
+      <button id="restartBtn" type="button">Rejouer</button>
+    </header>
+
+    <main class="stageWrap">
+      <canvas id="gameCanvas"></canvas>
+
+      <section id="overlay" class="overlay show">
+        <div class="panel">
+          <h2>Clone Mario Bros a 2 joueurs</h2>
+          <p>
+            Joueur 1: A / D / W. Joueur 2: Left / Right / Up.<br />
+            Sur mobile/tablette: appuyez sur votre personnage puis glissez.<br />
+            Glisse gauche/droite = avancer, glisse vers le haut = sauter.<br />
+            Atteignez le drapeau tous les deux pour gagner.
+          </p>
+          <button id="startBtn" type="button">Jouer</button>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>
