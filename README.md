@@ -1,3 +1,12 @@
+# 🎮 Arcade Duo
+
+Le projet contient maintenant un **menu principal** à la racine (`index.html`) qui permet de lancer :
+
+- **Guerre Spatiale** (jeu original) dans `games/guerre-spatiale/`
+- **Lucioles Jumelles** (nouveau jeu coop multi-touch) dans `games/lucioles-jumelles/`
+
+---
+
 # 🚀 Guerre Spatiale
 
 Un jeu de combat spatial multijoueur local, jouable directement dans le navigateur — aucune installation requise. Déployable en un clic sur **GitHub Pages**.
@@ -80,13 +89,13 @@ Ce jeu est un **fichier HTML unique** sans dépendance externe.
 
 Ouvrez simplement `index.html` dans un navigateur moderne. Aucun serveur ni build requis.
 
-Si vous modifiez les fichiers dans `js/` (architecture modulaire), régénérez la version locale `file://` avec :
+Si vous modifiez les fichiers dans `games/guerre-spatiale/js/` (architecture modulaire), régénérez la version locale `file://` avec :
 
 ```bash
 npm run build:legacy
 ```
 
-Vérification rapide (échoue si `js/main.legacy.js` n'est pas à jour) :
+Vérification rapide (échoue si `games/guerre-spatiale/js/main.legacy.js` n'est pas à jour) :
 
 ```bash
 npm run check:legacy

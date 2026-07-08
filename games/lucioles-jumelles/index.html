@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Lucioles Jumelles</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="back" href="../../index.html">⬅ Menu</a>
+      <h1>Lucioles Jumelles</h1>
+      <button id="restartBtn" type="button">Rejouer</button>
+    </header>
+
+    <main class="stageWrap">
+      <canvas id="gameCanvas"></canvas>
+      <section id="overlay" class="overlay show">
+        <div class="panel">
+          <h2>Coop à 2 sur un téléphone</h2>
+          <p>
+            Joueur 1 contrôle la moitié gauche, Joueur 2 la moitié droite.
+            Illuminez les fleurs ensemble avant la fin du chrono.
+          </p>
+          <button id="startBtn" type="button">Jouer</button>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

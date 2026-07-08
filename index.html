@@ -3,32 +3,27 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Guerre Spatiale</title>
-    <link rel="stylesheet" href="css/style.css" />
+    <title>Arcade Duo - Menu principal</title>
+    <link rel="stylesheet" href="home.css" />
   </head>
   <body>
-    <h1>Guerre spatiale</h1>
-    <canvas id="gameCanvas"></canvas>
-    <button id="replayButton" type="button">Menu principal</button>
+    <main class="menu">
+      <h1>Arcade Duo</h1>
+      <p class="subtitle">Choisissez un jeu local 2 joueurs sur le même téléphone.</p>
 
-    <div id="menuScreen">
-      <h2>🚀 Guerre Spatiale</h2>
-      <p>Choisissez votre mode de jeu</p>
-      <button class="menuBtn" id="btnPvp" type="button">⚔️ Duel — Haut contre Bas</button>
-      <button class="menuBtn" id="btnCoop" type="button">🤝 Équipe — 2 joueurs vs Ennemis</button>
-    </div>
+      <section class="grid">
+        <a class="card" href="games/guerre-spatiale/index.html">
+          <span class="gameTag tagA">Action</span>
+          <h2>Guerre Spatiale</h2>
+          <p>Duel, coop et campagne avec bonus, vaisseaux et tirs automatiques.</p>
+        </a>
 
-    <script>
-      if (window.location.protocol === "file:") {
-        var legacyScript = document.createElement("script");
-        legacyScript.src = "js/main.legacy.js";
-        document.body.appendChild(legacyScript);
-      } else {
-        var moduleScript = document.createElement("script");
-        moduleScript.type = "module";
-        moduleScript.src = "js/main.js";
-        document.body.appendChild(moduleScript);
-      }
-    </script>
+        <a class="card" href="games/lucioles-jumelles/index.html">
+          <span class="gameTag tagB">Nouveau</span>
+          <h2>Lucioles Jumelles</h2>
+          <p>Jeu coopératif multi-touch: illuminez les fleurs ensemble avant la fin du chrono.</p>
+        </a>
+      </section>
+    </main>
   </body>
 </html>

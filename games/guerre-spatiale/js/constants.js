@@ -28,6 +28,14 @@ export const COOP_ENEMY_BASE_HP = 6;
 export const COOP_ENEMY_HP_PER_WAVE = 2;
 export const COOP_MAX_PLAYER_DEATHS = 10;
 
+// ── Campaign ─────────────────────────────────────────────────────────────────
+export const CAMPAIGN_BOSS_SPAWN_DELAY_MS = 60000;
+export const CAMPAIGN_ENEMY_SPAWN_INTERVAL = 850;
+export const CAMPAIGN_MAX_PLAYER_DEATHS = 8;
+export const CAMPAIGN_BOSS_COUNT = 2;
+export const CAMPAIGN_BOSS_HP_MULTIPLIER = 2;
+export const CAMPAIGN_BOSS_HP_BAR_WIDTH_MULTIPLIER = 2;
+
 // ── Bonus pills ───────────────────────────────────────────────────────────────
 export const BONUS_PILL_RADIUS = 14;
 export const BONUS_PILL_SPEED = 65;
