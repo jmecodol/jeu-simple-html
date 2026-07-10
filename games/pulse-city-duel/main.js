@@ -20,7 +20,11 @@ const VEHICLE_TYPES = [
 
 const LINK_IDLE_SECONDS = 11;
 const BASE_COOLDOWN_SECONDS = 0.32;
-const BASE_SIZE_MULT = 2;
+const BASE_SIZE_MULT = 2.2;
+const HEAT_BUILD_ADD = 1.1;
+const HEAT_DECAY_PER_SEC = 0.22;
+const STABILITY_GAIN_PER_SEC = 0.16;
+const STABILITY_MAX = 4;
 
 const districts = [
   {
@@ -100,6 +104,11 @@ const state = {
   vehicles: [],
   fallingVehicles: [],
   pressBursts: [],
+  eventBursts: [],
+  playerStats: {
+    1: { heat: 0, stability: 0 },
+    2: { heat: 0, stability: 0 },
+  },
   winner: null,
 };
 
@@ -118,7 +127,8 @@ function activeDistrict() {
 }
 
 function baseSizeFactor(base) {
-  return 1 + Math.min(0.9, base.children.length * 0.11);
+  const branchBonus = Math.min(0.9, base.children.length * 0.11);
+  return 1 + branchBonus + (base.growth || 0) + ((base.cityScale || 1) - 1);
 }
 
 function baseVisualRadius(base) {
@@ -127,6 +137,28 @@ function baseVisualRadius(base) {
 
 function getLinkKey(parentId, childId) {
   return `${parentId}->${childId}`;
+}
+
+function playerStat(owner) {
+  return state.playerStats[owner];
+}
+
+function clamp01(v) {
+  return Math.max(0, Math.min(1, v));
+}
+
+function getOverload(owner) {
+  const stat = playerStat(owner);
+  return clamp01((stat.heat - 1.05) / 2.9);
+}
+
+function getStabilityBonus(owner) {
+  const stat = playerStat(owner);
+  return clamp01(stat.stability / STABILITY_MAX);
+}
+
+function getDestructionRadius(base) {
+  return baseVisualRadius(base) * (1 + (base.fragility || 0) * 0.7);
 }
 
 function updateLabels() {
@@ -238,6 +270,19 @@ function playSfxPress(owner) {
   tone(audioState.sfxGain, "sine", f, t, 0.07, 0.08);
 }
 
+function playSfxPermitDenied() {
+  if (!audioState.initialized) return;
+  const t = audioState.ctx.currentTime;
+  tone(audioState.sfxGain, "square", 440, t, 0.06, 0.09, 300);
+  tone(audioState.sfxGain, "sawtooth", 220, t + 0.05, 0.07, 0.08, 130);
+}
+
+function playSfxJam() {
+  if (!audioState.initialized) return;
+  const t = audioState.ctx.currentTime;
+  tone(audioState.sfxGain, "triangle", 260, t, 0.1, 0.1, 160);
+}
+
 function updateSoundtrack() {
   if (!audioState.initialized || !state.running) return;
   const bpm = 106;
@@ -294,6 +339,17 @@ function sampleQuadraticPoints(ax, ay, cx, cy, bx, by, segments = 28) {
   return points;
 }
 
+function addEventBurst(x, y, owner, kind) {
+  state.eventBursts.push({
+    x,
+    y,
+    owner,
+    kind,
+    life: 0.62,
+    r: state.baseRadius * BASE_SIZE_MULT * 0.55,
+  });
+}
+
 function createBase(owner, x, y, parentId) {
   const base = {
     id: state.baseIdCounter++,
@@ -305,8 +361,13 @@ function createBase(owner, x, y, parentId) {
     pulse: Math.random() * Math.PI * 2,
     spriteSeed: Math.random() * Math.PI * 2,
     spriteMood: Math.floor(Math.random() * 3),
+    growth: 0,
+    cityScale: 1,
+    fragility: 0,
+    mergeCooldownUntil: 0,
     cooldownUntil: 0,
     linkLastUsedAt: new Map(),
+    linkBirthAt: new Map(),
   };
 
   state.bases.push(base);
@@ -316,7 +377,11 @@ function createBase(owner, x, y, parentId) {
     if (parent) {
       parent.children.push(base.id);
       parent.linkLastUsedAt.set(getLinkKey(parent.id, base.id), state.now);
+      parent.linkBirthAt.set(getLinkKey(parent.id, base.id), state.now);
       createVehicleOnLink(parent.id, base.id, owner, 0.05 + Math.random() * 0.2);
+      const stat = playerStat(owner);
+      stat.heat += HEAT_BUILD_ADD;
+      stat.stability = Math.max(0, stat.stability - 0.3);
     }
   }
 
@@ -374,6 +439,7 @@ function unlinkChild(parentId, childId) {
   if (parent) {
     parent.children = parent.children.filter((id) => id !== childId);
     parent.linkLastUsedAt.delete(getLinkKey(parentId, childId));
+    parent.linkBirthAt.delete(getLinkKey(parentId, childId));
   }
   if (child && child.parentId === parentId) {
     child.parentId = null;
@@ -414,6 +480,7 @@ function removeBases(baseIdsSet) {
     base.children = base.children.filter((id) => !baseIdsSet.has(id));
     for (const deadId of baseIdsSet) {
       base.linkLastUsedAt.delete(getLinkKey(base.id, deadId));
+      base.linkBirthAt.delete(getLinkKey(base.id, deadId));
     }
   }
 
@@ -465,7 +532,7 @@ function isEndpointValid(x, y) {
   return true;
 }
 
-function buildControlPoint(sourceBase, aimX, aimY, pathPoints, reach, dirAngle) {
+function buildControlPoint(sourceBase, aimX, aimY, pathPoints, reach, dirAngle, owner) {
   const mx = (sourceBase.x + aimX) * 0.5;
   const my = (sourceBase.y + aimY) * 0.5;
   const nx = -Math.sin(dirAngle);
@@ -486,7 +553,9 @@ function buildControlPoint(sourceBase, aimX, aimY, pathPoints, reach, dirAngle) 
     userCurve = Math.max(-1, Math.min(1, strongest / (reach * 0.45)));
   }
 
-  const randomCurve = (Math.random() - 0.5) * 2 * activeDistrict().curveChaos;
+  const overload = getOverload(owner);
+  const stability = getStabilityBonus(owner);
+  const randomCurve = (Math.random() - 0.5) * 2 * activeDistrict().curveChaos * (1 + overload * 1.15 - stability * 0.3);
   const curveScalar = (userCurve * 0.95 + randomCurve) * reach * 0.55;
 
   return {
@@ -518,7 +587,11 @@ function applyShot(sourceBase, aim) {
   if (len < 10) return;
 
   if (sourceBase.cooldownUntil > state.now) return;
-  sourceBase.cooldownUntil = state.now + BASE_COOLDOWN_SECONDS;
+
+  const overload = getOverload(sourceBase.owner);
+  const stability = getStabilityBonus(sourceBase.owner);
+  sourceBase.cooldownUntil =
+    state.now + BASE_COOLDOWN_SECONDS * (1 + overload * 1.7 - stability * 0.28);
 
   let power = state.gaugeValue;
   if (activeDistrict().pulseJitter) {
@@ -533,7 +606,8 @@ function applyShot(sourceBase, aim) {
   const randomScale = 1 + (Math.random() - 0.5) * activeDistrict().directionChaos * 2.1;
   const reach = Math.max(minReach, Math.min(maxReach, intendedReach * powerScale * randomScale));
   const baseAngle = Math.atan2(dirY, dirX);
-  const chaoticAngle = baseAngle + (Math.random() - 0.5) * activeDistrict().directionChaos;
+  const directionChaos = activeDistrict().directionChaos * (1 + overload * 0.95 - stability * 0.25);
+  const chaoticAngle = baseAngle + (Math.random() - 0.5) * directionChaos;
   const nx = Math.cos(chaoticAngle);
   const ny = Math.sin(chaoticAngle);
 
@@ -548,14 +622,14 @@ function applyShot(sourceBase, aim) {
   endX = Math.max(edge, Math.min(state.w - edge, endX));
   endY = Math.max(edge, Math.min(state.h - edge, endY));
 
-  const control = buildControlPoint(sourceBase, endX, endY, aim.pathPoints, reach, chaoticAngle);
+  const control = buildControlPoint(sourceBase, endX, endY, aim.pathPoints, reach, chaoticAngle, sourceBase.owner);
   const shotPoints = sampleQuadraticPoints(sourceBase.x, sourceBase.y, control.x, control.y, endX, endY, 30);
 
   const enemy = sourceBase.owner === 1 ? 2 : 1;
   const touchedEnemyBases = state.bases.filter((b) => {
     if (b.owner !== enemy) return false;
     const d = distancePointToPolyline(b.x, b.y, shotPoints);
-    return d <= baseVisualRadius(b) * 0.95;
+    return d <= getDestructionRadius(b) * 0.95;
   });
 
   const toRemove = new Set();
@@ -565,8 +639,15 @@ function applyShot(sourceBase, aim) {
   removeBases(toRemove);
 
   if (isEndpointValid(endX, endY)) {
-    createBase(sourceBase.owner, endX, endY, sourceBase.id);
-    playSfxBuild(sourceBase.owner);
+    const denied = Math.random() < overload * 0.34;
+    if (denied) {
+      addEventBurst(endX, endY, sourceBase.owner, "denied");
+      playSfxPermitDenied();
+    } else {
+      createBase(sourceBase.owner, endX, endY, sourceBase.id);
+      addEventBurst(endX, endY, sourceBase.owner, "build");
+      playSfxBuild(sourceBase.owner);
+    }
   }
 
   playSfxShot(sourceBase.owner);
@@ -646,15 +727,24 @@ function getVehiclePosition(v) {
 
 function updateVehicles(dt) {
   for (const base of state.bases) {
+    const overload = getOverload(base.owner);
+    const stability = getStabilityBonus(base.owner);
+    const effectiveIdle = LINK_IDLE_SECONDS * (1 - overload * 0.55 + stability * 0.5);
+    const clampedIdle = Math.max(4.2, Math.min(21, effectiveIdle));
+
     for (const childId of base.children) {
       const linkKey = getLinkKey(base.id, childId);
       const lastUsed = base.linkLastUsedAt.get(linkKey) ?? state.now;
       const age = state.now - lastUsed;
-      if (age > LINK_IDLE_SECONDS) {
+      if (age > clampedIdle) {
         playSfxFall();
+        addEventBurst(base.x, base.y, base.owner, "jam");
         makeVehiclesFall((v) => v.parentId === base.id && v.childId === childId);
         unlinkChild(base.id, childId);
-      } else if (age < LINK_IDLE_SECONDS * 0.55 && Math.random() < dt * (0.85 - age / LINK_IDLE_SECONDS * 0.6)) {
+      } else if (
+        age < clampedIdle * 0.55 &&
+        Math.random() < dt * ((0.85 - age / clampedIdle * 0.6) * (1 - overload * 0.5 + stability * 0.35))
+      ) {
         createVehicleOnLink(base.id, childId, base.owner);
       }
     }
@@ -680,8 +770,29 @@ function updateVehicles(dt) {
       continue;
     }
 
+    const overload = getOverload(v.owner);
+    const stability = getStabilityBonus(v.owner);
+    const trafficFactor = 1 - overload * 0.34 + stability * 0.22;
+    if (Math.random() < dt * (0.045 * overload)) {
+      playSfxJam();
+      const p = getVehiclePosition(v);
+      addEventBurst(p.x, p.y, v.owner, "jam");
+      state.fallingVehicles.push({
+        x: p.x,
+        y: p.y,
+        vx: (Math.random() - 0.5) * 140,
+        vy: -110 - Math.random() * 130,
+        spin: (Math.random() - 0.5) * 6,
+        angle: Math.random() * Math.PI * 2,
+        icon: v.icon,
+        color: v.color,
+        life: 3.5,
+      });
+      continue;
+    }
+
     const dir = v.dir;
-    v.t += dir * v.speed * dt;
+    v.t += dir * v.speed * dt * trafficFactor;
     if (v.t >= 1) {
       v.t = 1;
       v.dir = -1;
@@ -710,6 +821,91 @@ function updateVehicles(dt) {
   state.fallingVehicles = state.fallingVehicles.filter((f) => f.life > 0);
 }
 
+function updateBaseGrowthAndMerges(dt) {
+  for (const base of state.bases) {
+    const cityBoost = Math.min(0.35, ((base.cityScale || 1) - 1) * 0.3);
+    const targetGrowth = Math.min(0.44, 0.04 + base.children.length * 0.025 + cityBoost);
+    base.growth += (targetGrowth - (base.growth || 0)) * Math.min(1, dt * 1.32);
+  }
+
+  for (let i = 0; i < state.bases.length; i += 1) {
+    const a = state.bases[i];
+    if (!a) continue;
+    for (let j = i + 1; j < state.bases.length; j += 1) {
+      const b = state.bases[j];
+      if (!b) continue;
+      if (a.owner !== b.owner) continue;
+      if (a.mergeCooldownUntil > state.now || b.mergeCooldownUntil > state.now) continue;
+
+      const dist = Math.hypot(a.x - b.x, a.y - b.y);
+      const touchDistance = (baseVisualRadius(a) + baseVisualRadius(b)) * 0.95;
+      if (dist > touchDistance) continue;
+
+      mergeCities(a, b);
+      return;
+    }
+  }
+}
+
+function mergeCities(baseA, baseB) {
+  const survivor = (baseA.children.length + baseA.cityScale) >= (baseB.children.length + baseB.cityScale) ? baseA : baseB;
+  const absorbed = survivor === baseA ? baseB : baseA;
+
+  if (absorbed.parentId !== null && absorbed.parentId !== survivor.id) {
+    unlinkChild(absorbed.parentId, absorbed.id);
+  }
+
+  for (const childId of absorbed.children) {
+    if (!survivor.children.includes(childId)) {
+      survivor.children.push(childId);
+      survivor.linkLastUsedAt.set(getLinkKey(survivor.id, childId), state.now);
+      survivor.linkBirthAt.set(getLinkKey(survivor.id, childId), state.now);
+    }
+    const child = state.bases.find((b) => b.id === childId);
+    if (child && child.parentId === absorbed.id) {
+      child.parentId = survivor.id;
+    }
+  }
+
+  makeVehiclesFall((v) => v.parentId === absorbed.id || v.childId === absorbed.id);
+
+  survivor.x = (survivor.x + absorbed.x) * 0.5;
+  survivor.y = (survivor.y + absorbed.y) * 0.5;
+  survivor.cityScale = Math.min(2.7, (survivor.cityScale || 1) + 0.42);
+  survivor.fragility = Math.min(1.2, (survivor.fragility || 0) + 0.32);
+  survivor.mergeCooldownUntil = state.now + 1.2;
+
+  for (const [pointerId, aim] of state.aimings.entries()) {
+    if (aim.baseId === absorbed.id) {
+      aim.baseId = survivor.id;
+      aim.owner = survivor.owner;
+      state.aimings.set(pointerId, aim);
+    }
+  }
+
+  addEventBurst(survivor.x, survivor.y, survivor.owner, "merge");
+  playSfxBuild(survivor.owner);
+  state.bases = state.bases.filter((b) => b.id !== absorbed.id);
+}
+
+function updateStrategy(dt) {
+  for (const owner of [1, 2]) {
+    const stat = playerStat(owner);
+    const ownedBaseCount = state.bases.filter((b) => b.owner === owner).length;
+
+    stat.heat = Math.max(0, stat.heat - dt * HEAT_DECAY_PER_SEC);
+
+    if (stat.heat < 1.05 && ownedBaseCount > 0) {
+      stat.stability = Math.min(
+        STABILITY_MAX,
+        stat.stability + dt * (STABILITY_GAIN_PER_SEC + Math.min(0.08, ownedBaseCount * 0.008)),
+      );
+    } else {
+      stat.stability = Math.max(0, stat.stability - dt * (0.14 + getOverload(owner) * 0.2));
+    }
+  }
+}
+
 function resetDistrictState() {
   state.baseIdCounter = 1;
   state.districtTimeLeft = activeDistrict().matchSeconds;
@@ -719,6 +915,11 @@ function resetDistrictState() {
   state.vehicles = [];
   state.fallingVehicles = [];
   state.pressBursts = [];
+  state.eventBursts = [];
+  state.playerStats[1].heat = 0;
+  state.playerStats[1].stability = 0;
+  state.playerStats[2].heat = 0;
+  state.playerStats[2].stability = 0;
   state.winner = null;
 
   const edgeGap = Math.max(state.baseRadius * BASE_SIZE_MULT * 1.45, Math.min(state.w, state.h) * 0.035);
@@ -746,8 +947,8 @@ function startSeason() {
   state.districtWins = { 1: 0, 2: 0 };
   panelTitle.textContent = "Pulse City - Duel de quartiers";
   panelText.textContent =
-    "Les deux joueurs jouent en meme temps. Trace ta direction et ta courbe, puis relache sur la jauge mobile. " +
-    "Le trafic urbain vit sur les chemins: s ils ne servent plus, ils meurent.";
+    "Si tu t etends trop vite: embouteillages, permis refuses, routes fragiles. " +
+    "Si tu construis calmement: ton reseau devient solide et finit par gagner.";
   startBtn.textContent = "Lancer le district";
   nextBtn.classList.add("hidden");
   updateLabels();
@@ -763,7 +964,7 @@ canvas.addEventListener("pointerdown", (evt) => {
 
   let chosen = null;
   for (const b of state.bases) {
-    if (distance({ x: p.x, y: p.y }, b) <= baseVisualRadius(b)) {
+    if (distance({ x: p.x, y: p.y }, b) <= baseVisualRadius(b) * 1.5) {
       chosen = b;
       break;
     }
@@ -907,6 +1108,75 @@ function drawPressBursts(dt) {
   state.pressBursts = state.pressBursts.filter((b) => b.life > 0);
 }
 
+function drawEventBursts(dt) {
+  for (const b of state.eventBursts) {
+    b.life -= dt;
+    b.r += dt * Math.min(state.w, state.h) * 0.2;
+    const alpha = Math.max(0, b.life / 0.62);
+    const col = b.owner === 1 ? "90,230,255" : "255,150,130";
+
+    ctx.strokeStyle = `rgba(${col}, ${0.8 * alpha})`;
+    ctx.lineWidth = Math.max(2, state.baseRadius * 0.18);
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+    ctx.stroke();
+
+    if (b.kind === "denied") {
+      ctx.strokeStyle = `rgba(255, 90, 90, ${0.95 * alpha})`;
+      ctx.lineWidth = Math.max(2, state.baseRadius * 0.22);
+      ctx.beginPath();
+      ctx.moveTo(b.x - b.r * 0.45, b.y - b.r * 0.45);
+      ctx.lineTo(b.x + b.r * 0.45, b.y + b.r * 0.45);
+      ctx.moveTo(b.x + b.r * 0.45, b.y - b.r * 0.45);
+      ctx.lineTo(b.x - b.r * 0.45, b.y + b.r * 0.45);
+      ctx.stroke();
+    } else if (b.kind === "jam") {
+      ctx.fillStyle = `rgba(255, 180, 60, ${0.9 * alpha})`;
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, b.r * 0.28, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (b.kind === "merge") {
+      ctx.strokeStyle = `rgba(255, 242, 120, ${0.95 * alpha})`;
+      ctx.lineWidth = Math.max(2, state.baseRadius * 0.24);
+      ctx.beginPath();
+      ctx.moveTo(b.x - b.r * 0.45, b.y);
+      ctx.lineTo(b.x + b.r * 0.45, b.y);
+      ctx.moveTo(b.x, b.y - b.r * 0.45);
+      ctx.lineTo(b.x, b.y + b.r * 0.45);
+      ctx.stroke();
+    }
+  }
+
+  state.eventBursts = state.eventBursts.filter((b) => b.life > 0);
+}
+
+function drawStrategyMeters() {
+  const drawMeter = (owner, x) => {
+    const heat = getOverload(owner);
+    const stability = getStabilityBonus(owner);
+    const y = 62;
+    const h = 42;
+    const w = 8;
+
+    ctx.fillStyle = "#00000066";
+    ctx.fillRect(x - 2, y - 2, w + 4, h + 4);
+
+    ctx.fillStyle = "#1a2028";
+    ctx.fillRect(x, y, w, h);
+
+    ctx.fillStyle = `rgba(255, 92, 92, ${0.75 + heat * 0.2})`;
+    const heatH = h * heat;
+    ctx.fillRect(x + 1, y + 1, w - 2, Math.max(0, heatH - 1));
+
+    ctx.fillStyle = `rgba(120, 255, 145, ${0.75 + stability * 0.2})`;
+    const stH = h * stability;
+    ctx.fillRect(x + 1, y + h - stH, w - 2, Math.max(0, stH - 1));
+  };
+
+  drawMeter(1, 14);
+  drawMeter(2, state.w - 22);
+}
+
 function drawLinks() {
   for (const b of state.bases) {
     for (const childId of b.children) {
@@ -914,17 +1184,74 @@ function drawLinks() {
       if (!child) continue;
       const linkKey = getLinkKey(b.id, child.id);
       const lastUsed = b.linkLastUsedAt.get(linkKey) ?? state.now;
+      const birthAt = b.linkBirthAt.get(linkKey) ?? lastUsed;
       const freshness = Math.max(0, 1 - (state.now - lastUsed) / LINK_IDLE_SECONDS);
       if (freshness <= 0) continue;
 
-      ctx.strokeStyle =
-        b.owner === 1 ? `rgba(128, 223, 244, ${0.18 + freshness * 0.55})` : `rgba(255, 179, 155, ${0.18 + freshness * 0.55})`;
-      ctx.lineWidth = Math.max(2, state.baseRadius * (0.36 + freshness * 0.45));
+      const age = Math.max(0, state.now - birthAt);
+      const complexity = Math.min(1, age / 18);
+      const dx = child.x - b.x;
+      const dy = child.y - b.y;
+      const len = Math.hypot(dx, dy) || 1;
+      const nx = -dy / len;
+      const ny = dx / len;
+      const sway = Math.sin(state.now * 0.6 + b.id * 0.7 + child.id * 0.3) * (state.baseRadius * (0.8 + complexity * 2.4));
+      const cx = (b.x + child.x) * 0.5 + nx * sway;
+      const cy = (b.y + child.y) * 0.5 + ny * sway;
+
+      const roadW = Math.max(3, state.baseRadius * (0.56 + freshness * 0.58));
+
+      // Asphalt body
+      ctx.strokeStyle = `rgba(28, 33, 42, ${0.42 + freshness * 0.35})`;
+      ctx.lineWidth = roadW * 1.55;
       ctx.lineCap = "round";
       ctx.beginPath();
       ctx.moveTo(b.x, b.y);
-      ctx.lineTo(child.x, child.y);
+      ctx.quadraticCurveTo(cx, cy, child.x, child.y);
       ctx.stroke();
+
+      // Inner lane surface
+      ctx.strokeStyle = `rgba(46, 58, 73, ${0.45 + freshness * 0.26})`;
+      ctx.lineWidth = roadW;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(b.x, b.y);
+      ctx.quadraticCurveTo(cx, cy, child.x, child.y);
+      ctx.stroke();
+
+      // Owner neon curb
+      ctx.strokeStyle =
+        b.owner === 1 ? `rgba(116, 222, 248, ${0.25 + freshness * 0.45})` : `rgba(252, 166, 142, ${0.25 + freshness * 0.45})`;
+      ctx.lineWidth = Math.max(1.5, roadW * 0.28);
+      ctx.beginPath();
+      ctx.moveTo(b.x, b.y);
+      ctx.quadraticCurveTo(cx + nx * 2, cy + ny * 2, child.x, child.y);
+      ctx.stroke();
+
+      // Urban lane markings
+      ctx.strokeStyle = `rgba(238, 232, 188, ${0.2 + freshness * 0.35})`;
+      ctx.lineWidth = Math.max(1, roadW * 0.12);
+      ctx.setLineDash([6, 7]);
+      ctx.beginPath();
+      ctx.moveTo(b.x, b.y);
+      ctx.quadraticCurveTo(cx, cy, child.x, child.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      if (complexity > 0.2) {
+        ctx.strokeStyle = b.owner === 1 ? `rgba(105, 204, 230, ${0.18 * complexity})` : `rgba(240, 150, 130, ${0.18 * complexity})`;
+        ctx.lineWidth = Math.max(1.2, state.baseRadius * 0.16);
+        for (let k = 0; k < 2; k += 1) {
+          const t = (k + 1) / 3;
+          const px = quadraticAt(t, b.x, cx, child.x);
+          const py = quadraticAt(t, b.y, cy, child.y);
+          const branch = state.baseRadius * (0.6 + complexity * 1.4);
+          ctx.beginPath();
+          ctx.moveTo(px, py);
+          ctx.lineTo(px + nx * branch * (k === 0 ? 1 : -1), py + ny * branch * (k === 0 ? 1 : -1));
+          ctx.stroke();
+        }
+      }
     }
   }
 }
@@ -954,17 +1281,72 @@ function drawVehicles() {
     const p = getVehiclePosition(v);
     const heading = Math.atan2(child.y - parent.y, child.x - parent.x) + Math.sin(state.gaugeTime * 6 + v.wobble) * 0.04;
 
+    const drawWheels = (x, y, spread) => {
+      ctx.fillStyle = "#0e1116";
+      ctx.beginPath();
+      ctx.arc(x - spread, y + 4, 2.1, 0, Math.PI * 2);
+      ctx.arc(x + spread, y + 4, 2.1, 0, Math.PI * 2);
+      ctx.fill();
+    };
+
     ctx.save();
     ctx.translate(p.x, p.y);
     ctx.rotate(heading);
-    ctx.fillStyle = "#0a0d139a";
-    ctx.fillRect(-10, -6, 20, 12);
-    ctx.fillStyle = v.color;
-    ctx.fillRect(-9, -5, 18, 10);
-    ctx.fillStyle = v.kind === "limousine" ? "#d6d9df" : "#11151d";
-    ctx.font = "700 8px 'Trebuchet MS'";
-    ctx.textAlign = "center";
-    ctx.fillText(v.icon, 0, 3);
+
+    if (v.kind === "ambulance") {
+      ctx.fillStyle = "#f3f9ff";
+      ctx.fillRect(-10, -5, 20, 10);
+      ctx.fillStyle = "#d84545";
+      ctx.fillRect(-2, -3.6, 4, 7.2);
+      ctx.fillRect(-4.1, -1.5, 8.2, 3);
+      ctx.fillStyle = "#8ee6ff";
+      ctx.fillRect(-7, -5.8, 5, 1.5);
+      ctx.fillRect(2, -5.8, 5, 1.5);
+      drawWheels(0, 0, 6.3);
+    } else if (v.kind === "taxi") {
+      ctx.fillStyle = "#ffd44c";
+      ctx.fillRect(-9, -5, 18, 10);
+      ctx.fillStyle = "#161515";
+      for (let i = -7; i <= 5; i += 4) {
+        ctx.fillRect(i, -1.4, 2, 2.8);
+      }
+      ctx.fillStyle = "#fff1a2";
+      ctx.fillRect(-2.6, -6.4, 5.2, 1.6);
+      drawWheels(0, 0, 5.8);
+    } else if (v.kind === "limousine") {
+      ctx.fillStyle = "#151823";
+      ctx.fillRect(-14, -4.8, 28, 9.6);
+      ctx.fillStyle = "#2b3040";
+      ctx.fillRect(-8, -3, 16, 6);
+      ctx.fillStyle = "#cfd3dc";
+      ctx.fillRect(11.2, -0.8, 2, 1.6);
+      drawWheels(0, 0, 9.8);
+    } else {
+      ctx.strokeStyle = "#79f39f";
+      ctx.lineWidth = 1.3;
+      ctx.beginPath();
+      ctx.arc(-4, 3, 2.1, 0, Math.PI * 2);
+      ctx.arc(4, 3, 2.1, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.strokeStyle = "#79f39f";
+      ctx.beginPath();
+      ctx.moveTo(-4, 3);
+      ctx.lineTo(0, -2.5);
+      ctx.lineTo(4, 3);
+      ctx.stroke();
+      ctx.fillStyle = "#c6ffd8";
+      ctx.beginPath();
+      ctx.arc(0, -3.8, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    if (v.kind !== "velo") {
+      ctx.fillStyle = "#11151d";
+      ctx.font = "700 7px 'Trebuchet MS'";
+      ctx.textAlign = "center";
+      ctx.fillText(v.icon, 0, 2.6);
+    }
+
     ctx.restore();
   }
 
@@ -1061,6 +1443,17 @@ function drawBases() {
     ctx.beginPath();
     ctx.arc(b.x, b.y, r, 0, Math.PI * 2);
     ctx.stroke();
+
+    if ((b.fragility || 0) > 0) {
+      const f = Math.min(1, b.fragility);
+      ctx.strokeStyle = `rgba(255, 120, 120, ${0.35 + f * 0.45})`;
+      ctx.lineWidth = Math.max(1.5, state.baseRadius * 0.18);
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, r * (1.1 + f * 0.12), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
   }
 }
 
@@ -1075,7 +1468,7 @@ function drawAimPreview() {
     if (len < 8) continue;
 
     const angle = Math.atan2(dy, dx);
-    const control = buildControlPoint(src, aim.x, aim.y, aim.pathPoints, len, angle);
+    const control = buildControlPoint(src, aim.x, aim.y, aim.pathPoints, len, angle, aim.owner);
 
     ctx.strokeStyle = aim.owner === 1 ? "#9beff8" : "#ffc0b6";
     ctx.lineWidth = 2;
@@ -1122,12 +1515,13 @@ function frame(now) {
   updateSoundtrack();
 
   if (state.running) {
-    state.districtTimeLeft = Math.max(0, state.districtTimeLeft - dt);
+    updateStrategy(dt);
+    updateBaseGrowthAndMerges(dt);
     updateVehicles(dt);
 
     const p1Alive = state.bases.some((b) => b.owner === 1);
     const p2Alive = state.bases.some((b) => b.owner === 2);
-    if (!p1Alive || !p2Alive || state.districtTimeLeft <= 0) {
+    if (!p1Alive || !p2Alive) {
       finalizeDistrict(!p1Alive ? 2 : !p2Alive ? 1 : null);
     }
   } else {
@@ -1137,11 +1531,13 @@ function frame(now) {
   drawUrbanBackground();
   drawNoBuildZones();
   drawPressBursts(dt);
+  drawEventBursts(dt);
   drawLinks();
   drawShotFx(dt);
   drawVehicles();
   drawBases();
   drawAimPreview();
+  drawStrategyMeters();
 
   requestAnimationFrame(frame);
 }
