@@ -4,12 +4,12 @@ const ctx = canvas.getContext("2d");
 const overlay = document.getElementById("overlay");
 const panelTitle = document.getElementById("panelTitle");
 const panelText = document.getElementById("panelText");
-const districtInfo = document.getElementById("districtInfo");
 const scoreP1 = document.getElementById("scoreP1");
 const scoreP2 = document.getElementById("scoreP2");
 const startBtn = document.getElementById("startBtn");
 const nextBtn = document.getElementById("nextBtn");
 const restartBtn = document.getElementById("restartBtn");
+const fullscreenBtn = document.getElementById("fullscreenBtn");
 
 const VEHICLE_TYPES = [
   { kind: "ambulance", icon: "AM", speed: 0.16, color: "#e9f8ff" },
@@ -118,10 +118,33 @@ function getLinkKey(parentId, childId) {
 }
 
 function updateLabels() {
-  const district = activeDistrict();
-  districtInfo.textContent = `${district.name} - ${district.subtitle}`;
   scoreP1.textContent = String(state.districtWins[1]);
   scoreP2.textContent = String(state.districtWins[2]);
+}
+
+async function enterFullscreen() {
+  if (document.fullscreenElement) return;
+  if (!document.documentElement.requestFullscreen) return;
+  try {
+    await document.documentElement.requestFullscreen();
+  } catch {
+    // Ignore platforms that block fullscreen requests.
+  }
+}
+
+async function toggleFullscreen() {
+  if (document.fullscreenElement) {
+    if (document.exitFullscreen) {
+      await document.exitFullscreen();
+    }
+    return;
+  }
+  await enterFullscreen();
+}
+
+function updateFullscreenButton() {
+  if (!fullscreenBtn) return;
+  fullscreenBtn.textContent = document.fullscreenElement ? "Exit" : "FS";
 }
 
 function resizeCanvas() {
@@ -700,11 +723,8 @@ function drawUrbanBackground() {
     ctx.fillStyle = "#120d17b3";
     ctx.fillRect(x, y, w, h);
     ctx.fillStyle = i % 2 ? "#ff6b61" : "#58def4";
-    ctx.font = "700 11px 'Trebuchet MS'";
-    ctx.textAlign = "center";
-    ctx.fillText(i % 2 ? "NO FUTURE" : "RENT++", x + w / 2, y + 14);
+    ctx.fillRect(x + 8, y + 7, w - 16, 6);
   }
-  ctx.textAlign = "left";
 }
 
 function drawNoBuildZones() {
@@ -721,12 +741,7 @@ function drawNoBuildZones() {
     ctx.fill();
     ctx.stroke();
 
-    ctx.fillStyle = "#f4f0d3";
-    ctx.font = "600 12px 'Trebuchet MS'";
-    ctx.textAlign = "center";
-    ctx.fillText(zone.label, x, y + 4);
   }
-  ctx.textAlign = "left";
 }
 
 function drawLinks() {
@@ -926,22 +941,6 @@ function drawAimPreview() {
   }
 }
 
-function drawTopHud() {
-  const p1Count = state.bases.filter((b) => b.owner === 1).length;
-  const p2Count = state.bases.filter((b) => b.owner === 2).length;
-  ctx.fillStyle = "#00000063";
-  ctx.fillRect(state.w / 2 - 178, 10, 356, 36);
-  ctx.fillStyle = "#f8f7ee";
-  ctx.font = "700 14px 'Trebuchet MS'";
-  ctx.textAlign = "center";
-  ctx.fillText(
-    `J1 ${p1Count} bases  |  J2 ${p2Count} bases  |  ${Math.ceil(state.districtTimeLeft)}s`,
-    state.w / 2,
-    33,
-  );
-  ctx.textAlign = "left";
-}
-
 function nextDistrict() {
   if (state.districtIndex < districts.length - 1) {
     state.districtIndex += 1;
@@ -978,24 +977,30 @@ function frame(now) {
   drawVehicles();
   drawBases();
   drawAimPreview();
-  drawTopHud();
 
   requestAnimationFrame(frame);
 }
 
 startBtn.addEventListener("click", () => {
   if (startBtn.textContent.includes("Nouvelle saison")) {
+    enterFullscreen();
     startSeason();
     return;
   }
+  enterFullscreen();
   startDistrict();
 });
 
 nextBtn.addEventListener("click", nextDistrict);
 restartBtn.addEventListener("click", startSeason);
+if (fullscreenBtn) {
+  fullscreenBtn.addEventListener("click", toggleFullscreen);
+}
+document.addEventListener("fullscreenchange", updateFullscreenButton);
 window.addEventListener("resize", resizeCanvas);
 
 resizeCanvas();
 updateLabels();
+updateFullscreenButton();
 requestAnimationFrame(frame);
 

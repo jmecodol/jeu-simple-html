@@ -8,24 +8,22 @@
   </head>
   <body>
     <header class="topbar">
-      <a class="back" href="../../index.html">Retour menu</a>
-      <div class="titleWrap">
-        <h1>Pulse City Duel</h1>
-        <p id="districtInfo">Saison urbaine en cours</p>
-      </div>
-      <button id="restartBtn" type="button">Nouvelle saison</button>
+      <a class="back" href="../../index.html" aria-label="Menu">Menu</a>
+      <div class="spacer" aria-hidden="true"></div>
+      <button id="fullscreenBtn" type="button" aria-label="Plein ecran">FS</button>
+      <button id="restartBtn" type="button" aria-label="Recommencer">Reset</button>
     </header>
 
     <main class="stageWrap">
       <canvas id="gameCanvas"></canvas>
 
       <aside class="hudCol leftCol">
-        <div class="badge p1">J1</div>
+        <div class="badge p1" aria-hidden="true"></div>
         <div class="score" id="scoreP1">0</div>
       </aside>
 
       <aside class="hudCol rightCol">
-        <div class="badge p2">J2</div>
+        <div class="badge p2" aria-hidden="true"></div>
         <div class="score" id="scoreP2">0</div>
       </aside>
 
@@ -33,9 +31,7 @@
         <div class="panel">
           <h2 id="panelTitle">Pulse City - Duel de quartiers</h2>
           <p id="panelText">
-            Les 2 joueurs jouent en parallele: aucun tour par tour.
-            Dessine ton tir depuis une base, la jauge suit ta ligne puis relache au bon timing.
-            Le trafic vit sur les chemins, grossit les hubs, puis chute si une station saute.
+            Touchez une base, glissez, relachez.
           </p>
           <div class="panelActions">
             <button id="startBtn" type="button">Lancer le district</button>
