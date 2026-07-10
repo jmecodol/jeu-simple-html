@@ -18,6 +18,17 @@ const VEHICLE_TYPES = [
   { kind: "velo", icon: "VL", speed: 0.2, color: "#8af7a5" },
 ];
 
+const BASE_STICKERS = ["BIP", "WOUF", "MIA", "PLOP", "HOP", "TUT"];
+const BASE_ACCESSORIES = ["cap", "star", "mask"];
+const EVENT_WORDS = {
+  denied: "OUPS",
+  jam: "GLUPS",
+  merge: "MEGA",
+  build: "HOP",
+  ufo: "ZAP",
+  boom: "POUF",
+};
+
 const LINK_IDLE_SECONDS = 11;
 const BASE_COOLDOWN_SECONDS = 0.32;
 const BASE_SIZE_MULT = 2.2;
@@ -25,6 +36,9 @@ const HEAT_BUILD_ADD = 1.1;
 const HEAT_DECAY_PER_SEC = 0.22;
 const STABILITY_GAIN_PER_SEC = 0.16;
 const STABILITY_MAX = 4;
+const UFO_SPAWN_MIN = 18;
+const UFO_SPAWN_MAX = 30;
+const UFO_HP = 18;
 
 const districts = [
   {
@@ -105,6 +119,8 @@ const state = {
   fallingVehicles: [],
   pressBursts: [],
   eventBursts: [],
+  ufo: null,
+  nextUfoAt: 0,
   playerStats: {
     1: { heat: 0, stability: 0 },
     2: { heat: 0, stability: 0 },
@@ -283,6 +299,25 @@ function playSfxJam() {
   tone(audioState.sfxGain, "triangle", 260, t, 0.1, 0.1, 160);
 }
 
+function playSfxUfoHum() {
+  if (!audioState.initialized) return;
+  const t = audioState.ctx.currentTime;
+  tone(audioState.sfxGain, "sawtooth", 180, t, 0.24, 0.08, 130);
+}
+
+function playSfxUfoHit() {
+  if (!audioState.initialized) return;
+  const t = audioState.ctx.currentTime;
+  tone(audioState.sfxGain, "square", 720, t, 0.06, 0.09, 480);
+}
+
+function playSfxUfoDown() {
+  if (!audioState.initialized) return;
+  const t = audioState.ctx.currentTime;
+  tone(audioState.sfxGain, "sawtooth", 420, t, 0.12, 0.14, 120);
+  tone(audioState.sfxGain, "triangle", 220, t + 0.06, 0.18, 0.12, 70);
+}
+
 function updateSoundtrack() {
   if (!audioState.initialized || !state.running) return;
   const bpm = 106;
@@ -339,12 +374,140 @@ function sampleQuadraticPoints(ax, ay, cx, cy, bx, by, segments = 28) {
   return points;
 }
 
+function polylineLength(points) {
+  let total = 0;
+  for (let i = 0; i < points.length - 1; i += 1) {
+    total += Math.hypot(points[i + 1].x - points[i].x, points[i + 1].y - points[i].y);
+  }
+  return total;
+}
+
+function pointAlongPolyline(points, targetDistance) {
+  if (!points.length) return null;
+  if (targetDistance <= 0) return points[0];
+
+  let walked = 0;
+  for (let i = 0; i < points.length - 1; i += 1) {
+    const a = points[i];
+    const b = points[i + 1];
+    const seg = Math.hypot(b.x - a.x, b.y - a.y);
+    if (walked + seg >= targetDistance) {
+      const t = (targetDistance - walked) / (seg || 1);
+      return {
+        x: a.x + (b.x - a.x) * t,
+        y: a.y + (b.y - a.y) * t,
+      };
+    }
+    walked += seg;
+  }
+  return points[points.length - 1];
+}
+
+function scheduleNextUfo(delay = null) {
+  state.nextUfoAt = state.now + (delay ?? (UFO_SPAWN_MIN + Math.random() * (UFO_SPAWN_MAX - UFO_SPAWN_MIN)));
+}
+
+function spawnUfo() {
+  const fromLeft = Math.random() < 0.5;
+  const y = state.h * (0.16 + Math.random() * 0.42);
+  state.ufo = {
+    x: fromLeft ? -90 : state.w + 90,
+    y,
+    vx: fromLeft ? 70 + Math.random() * 35 : -(70 + Math.random() * 35),
+    wobble: Math.random() * Math.PI * 2,
+    hp: UFO_HP,
+    maxHp: UFO_HP,
+    life: 15,
+    attackCooldown: 0,
+    hitFlash: 0,
+    seenBaseIds: new Set(),
+  };
+  addEventBurst(state.ufo.x < 0 ? 42 : state.w - 42, y, 1, "ufo");
+  playSfxUfoHum();
+}
+
+function destroyBasesNearUfo() {
+  const ufo = state.ufo;
+  if (!ufo) return;
+
+  for (const base of state.bases) {
+    if (ufo.seenBaseIds.has(base.id)) continue;
+    const dist = Math.hypot(base.x - ufo.x, base.y - ufo.y);
+    if (dist > getDestructionRadius(base) + state.baseRadius * 2.2) continue;
+
+    const toRemove = new Set();
+    collectSubtreeIds(base.id, toRemove);
+    addEventBurst(base.x, base.y, base.owner, "ufo");
+    removeBases(toRemove);
+    ufo.seenBaseIds.add(base.id);
+    playSfxDestroy(Math.max(1, toRemove.size));
+    break;
+  }
+}
+
+function hitUfo(owner) {
+  const ufo = state.ufo;
+  if (!ufo) return false;
+  ufo.hp -= 1;
+  ufo.hitFlash = 0.18;
+  addEventBurst(ufo.x, ufo.y, owner, ufo.hp <= 0 ? "boom" : "ufo");
+  playSfxUfoHit();
+
+  if (ufo.hp <= 0) {
+    playSfxUfoDown();
+    state.fallingVehicles.push({
+      x: ufo.x,
+      y: ufo.y,
+      vx: ufo.vx * 0.7,
+      vy: -170,
+      spin: 4,
+      angle: 0,
+      icon: "ET",
+      color: "#d8fff5",
+      life: 2.8,
+    });
+    state.ufo = null;
+    scheduleNextUfo(16 + Math.random() * 8);
+  }
+  return true;
+}
+
+function updateUfo(dt) {
+  if (!state.running) return;
+
+  if (!state.ufo) {
+    if (state.now >= state.nextUfoAt) {
+      spawnUfo();
+    }
+    return;
+  }
+
+  const ufo = state.ufo;
+  ufo.life -= dt;
+  ufo.attackCooldown = Math.max(0, ufo.attackCooldown - dt);
+  ufo.hitFlash = Math.max(0, ufo.hitFlash - dt);
+  ufo.x += ufo.vx * dt;
+  ufo.y += Math.sin(state.now * 2.8 + ufo.wobble) * 22 * dt;
+
+  if (ufo.attackCooldown <= 0) {
+    destroyBasesNearUfo();
+    ufo.attackCooldown = 0.42;
+    playSfxUfoHum();
+  }
+
+  if (ufo.life <= 0 || ufo.x < -120 || ufo.x > state.w + 120) {
+    state.ufo = null;
+    scheduleNextUfo();
+  }
+}
+
 function addEventBurst(x, y, owner, kind) {
   state.eventBursts.push({
     x,
     y,
     owner,
     kind,
+    word: EVENT_WORDS[kind] || "BIP",
     life: 0.62,
     r: state.baseRadius * BASE_SIZE_MULT * 0.55,
   });
@@ -361,6 +524,8 @@ function createBase(owner, x, y, parentId) {
     pulse: Math.random() * Math.PI * 2,
     spriteSeed: Math.random() * Math.PI * 2,
     spriteMood: Math.floor(Math.random() * 3),
+    sticker: BASE_STICKERS[Math.floor(Math.random() * BASE_STICKERS.length)],
+    accessory: BASE_ACCESSORIES[Math.floor(Math.random() * BASE_ACCESSORIES.length)],
     growth: 0,
     cityScale: 1,
     fragility: 0,
@@ -623,7 +788,8 @@ function applyShot(sourceBase, aim) {
   endY = Math.max(edge, Math.min(state.h - edge, endY));
 
   const control = buildControlPoint(sourceBase, endX, endY, aim.pathPoints, reach, chaoticAngle, sourceBase.owner);
-  const shotPoints = sampleQuadraticPoints(sourceBase.x, sourceBase.y, control.x, control.y, endX, endY, 30);
+  const shotPoints = sampleQuadraticPoints(sourceBase.x, sourceBase.y, control.x, control.y, endX, endY, 34);
+  const pathLen = polylineLength(shotPoints);
 
   const enemy = sourceBase.owner === 1 ? 2 : 1;
   const touchedEnemyBases = state.bases.filter((b) => {
@@ -632,22 +798,42 @@ function applyShot(sourceBase, aim) {
     return d <= getDestructionRadius(b) * 0.95;
   });
 
+  if (state.ufo) {
+    const ufoDist = distancePointToPolyline(state.ufo.x, state.ufo.y, shotPoints);
+    if (ufoDist <= state.baseRadius * 2.1) {
+      hitUfo(sourceBase.owner);
+    }
+  }
+
   const toRemove = new Set();
   for (const hit of touchedEnemyBases) {
     collectSubtreeIds(hit.id, toRemove);
   }
   removeBases(toRemove);
 
-  if (isEndpointValid(endX, endY)) {
-    const denied = Math.random() < overload * 0.34;
+  const spacing = state.baseRadius * BASE_SIZE_MULT * 4.8;
+  const dropCount = Math.max(1, Math.min(5, Math.floor(pathLen / spacing)));
+  const parentChain = { current: sourceBase };
+  let builtAny = false;
+
+  for (let step = 1; step <= dropCount; step += 1) {
+    const dist = (pathLen * step) / dropCount;
+    const targetPoint = pointAlongPolyline(shotPoints, dist);
+    if (!targetPoint) continue;
+    if (!isEndpointValid(targetPoint.x, targetPoint.y)) continue;
+
+    const denied = Math.random() < overload * (0.2 + 0.16 * (step / dropCount));
     if (denied) {
-      addEventBurst(endX, endY, sourceBase.owner, "denied");
+      addEventBurst(targetPoint.x, targetPoint.y, sourceBase.owner, "denied");
       playSfxPermitDenied();
-    } else {
-      createBase(sourceBase.owner, endX, endY, sourceBase.id);
-      addEventBurst(endX, endY, sourceBase.owner, "build");
-      playSfxBuild(sourceBase.owner);
+      continue;
     }
+
+    const newBase = createBase(sourceBase.owner, targetPoint.x, targetPoint.y, parentChain.current.id);
+    parentChain.current = newBase;
+    builtAny = true;
+    addEventBurst(targetPoint.x, targetPoint.y, sourceBase.owner, step === dropCount ? "build" : "merge");
+    playSfxBuild(sourceBase.owner);
   }
 
   playSfxShot(sourceBase.owner);
@@ -660,7 +846,7 @@ function applyShot(sourceBase, aim) {
     bx: endX,
     by: endY,
     owner: sourceBase.owner,
-    ttl: 0.62,
+    ttl: builtAny ? 0.86 : 0.62,
     jitterSeed: Math.random() * Math.PI * 2,
   });
 }
@@ -686,13 +872,13 @@ function finalizeDistrict(forcedWinner = null) {
   const districtName = activeDistrict().name;
   if (!winner) {
     panelTitle.textContent = `${districtName} - Egalite`;
-    panelText.textContent = "Les deux reseaux finissent au meme niveau. Relance ce district pour les departager.";
+    panelText.textContent = "Match nul: deux grandes villes, zero ego, et beaucoup trop de klaxons.";
     nextBtn.classList.add("hidden");
     startBtn.classList.remove("hidden");
     startBtn.textContent = "Rejouer ce district";
   } else if (state.districtIndex < districts.length - 1) {
     panelTitle.textContent = `${districtName} gagne par J${winner}`;
-    panelText.textContent = `Le collectif J${winner} remporte ce quartier. Passez au district suivant.`;
+    panelText.textContent = `Le collectif J${winner} remporte ce quartier. Les pigeons locaux ont deja choisi leur camp.`;
     startBtn.classList.add("hidden");
     nextBtn.classList.remove("hidden");
   } else {
@@ -705,7 +891,7 @@ function finalizeDistrict(forcedWinner = null) {
     panelTitle.textContent = `Saison terminee - Champion: J${finalWinner}`;
     panelText.textContent =
       `Score final ${state.districtWins[1]} - ${state.districtWins[2]}. ` +
-      `La ville adopte le style du collectif J${finalWinner}.`;
+      `La ville adopte le style du collectif J${finalWinner}, avec plus de confettis que de sens de circulation.`;
     startBtn.classList.remove("hidden");
     startBtn.textContent = "Nouvelle saison";
     nextBtn.classList.add("hidden");
@@ -916,6 +1102,8 @@ function resetDistrictState() {
   state.fallingVehicles = [];
   state.pressBursts = [];
   state.eventBursts = [];
+  state.ufo = null;
+  scheduleNextUfo(9 + Math.random() * 6);
   state.playerStats[1].heat = 0;
   state.playerStats[1].stability = 0;
   state.playerStats[2].heat = 0;
@@ -947,8 +1135,8 @@ function startSeason() {
   state.districtWins = { 1: 0, 2: 0 };
   panelTitle.textContent = "Pulse City - Duel de quartiers";
   panelText.textContent =
-    "Si tu t etends trop vite: embouteillages, permis refuses, routes fragiles. " +
-    "Si tu construis calmement: ton reseau devient solide et finit par gagner.";
+    "Version mini-maire malicieuse: si tu t etends trop vite, tout le monde fait GLUPS. " +
+    "Si tu construis tranquillement, ta ville devient costaud. Et parfois, un ET en soucoupe vient tout casser.";
   startBtn.textContent = "Lancer le district";
   nextBtn.classList.add("hidden");
   updateLabels();
@@ -1145,9 +1333,15 @@ function drawEventBursts(dt) {
       ctx.lineTo(b.x, b.y + b.r * 0.45);
       ctx.stroke();
     }
+
+    ctx.fillStyle = `rgba(255, 247, 214, ${0.95 * alpha})`;
+    ctx.font = `700 ${Math.max(9, Math.round(state.baseRadius * 0.5))}px 'Trebuchet MS'`;
+    ctx.textAlign = "center";
+    ctx.fillText(b.word, b.x, b.y - b.r * 0.72);
   }
 
   state.eventBursts = state.eventBursts.filter((b) => b.life > 0);
+  ctx.textAlign = "left";
 }
 
 function drawStrategyMeters() {
@@ -1269,6 +1463,15 @@ function drawShotFx(dt) {
     ctx.moveTo(fx.ax, fx.ay);
     ctx.quadraticCurveTo(fx.cx + jitter, fx.cy - jitter, fx.bx, fx.by);
     ctx.stroke();
+
+    ctx.strokeStyle = fx.owner === 1 ? `rgba(235, 255, 255, ${0.34 * alpha})` : `rgba(255, 240, 225, ${0.34 * alpha})`;
+    ctx.lineWidth = Math.max(1.2, state.baseRadius * 0.16);
+    ctx.setLineDash([5, 8]);
+    ctx.beginPath();
+    ctx.moveTo(fx.ax, fx.ay);
+    ctx.quadraticCurveTo(fx.cx - jitter * 0.4, fx.cy + jitter * 0.4, fx.bx, fx.by);
+    ctx.stroke();
+    ctx.setLineDash([]);
   }
 }
 
@@ -1280,6 +1483,7 @@ function drawVehicles() {
 
     const p = getVehiclePosition(v);
     const heading = Math.atan2(child.y - parent.y, child.x - parent.x) + Math.sin(state.gaugeTime * 6 + v.wobble) * 0.04;
+    const bob = Math.sin(state.gaugeTime * 10 + v.wobble) * 0.8;
 
     const drawWheels = (x, y, spread) => {
       ctx.fillStyle = "#0e1116";
@@ -1290,8 +1494,11 @@ function drawVehicles() {
     };
 
     ctx.save();
-    ctx.translate(p.x, p.y);
+    ctx.translate(p.x, p.y + bob);
     ctx.rotate(heading);
+
+    ctx.fillStyle = v.owner === 1 ? "#72ecff33" : "#ff9f8b33";
+    ctx.fillRect(-12, -2, 24, 4);
 
     if (v.kind === "ambulance") {
       ctx.fillStyle = "#f3f9ff";
@@ -1302,6 +1509,12 @@ function drawVehicles() {
       ctx.fillStyle = "#8ee6ff";
       ctx.fillRect(-7, -5.8, 5, 1.5);
       ctx.fillRect(2, -5.8, 5, 1.5);
+      ctx.fillStyle = "#ff5656";
+      ctx.fillRect(-1.4, -7.2, 2.8, 1.4);
+      ctx.fillStyle = "#233040";
+      ctx.fillRect(-6, -1, 2, 2);
+      ctx.fillRect(4, -1, 2, 2);
+      ctx.fillRect(-2, 2, 4, 1.5);
       drawWheels(0, 0, 6.3);
     } else if (v.kind === "taxi") {
       ctx.fillStyle = "#ffd44c";
@@ -1312,6 +1525,13 @@ function drawVehicles() {
       }
       ctx.fillStyle = "#fff1a2";
       ctx.fillRect(-2.6, -6.4, 5.2, 1.6);
+      ctx.fillStyle = "#fff8d5";
+      ctx.fillRect(-7, -6.2, 2.2, 1.4);
+      ctx.fillRect(4.8, -6.2, 2.2, 1.4);
+      ctx.fillStyle = "#231f15";
+      ctx.fillRect(-5.5, -1, 2, 2);
+      ctx.fillRect(3.5, -1, 2, 2);
+      ctx.fillRect(-2.5, 2, 5, 1.5);
       drawWheels(0, 0, 5.8);
     } else if (v.kind === "limousine") {
       ctx.fillStyle = "#151823";
@@ -1320,6 +1540,12 @@ function drawVehicles() {
       ctx.fillRect(-8, -3, 16, 6);
       ctx.fillStyle = "#cfd3dc";
       ctx.fillRect(11.2, -0.8, 2, 1.6);
+      ctx.fillStyle = "#ffd86f";
+      ctx.fillRect(-1.8, -6.2, 3.6, 1.2);
+      ctx.fillStyle = "#eef4ff";
+      ctx.fillRect(-9.5, -1, 2, 2);
+      ctx.fillRect(7.5, -1, 2, 2);
+      ctx.fillRect(-2.8, 1.8, 5.6, 1.3);
       drawWheels(0, 0, 9.8);
     } else {
       ctx.strokeStyle = "#79f39f";
@@ -1338,6 +1564,8 @@ function drawVehicles() {
       ctx.beginPath();
       ctx.arc(0, -3.8, 1.5, 0, Math.PI * 2);
       ctx.fill();
+      ctx.fillStyle = "#203322";
+      ctx.fillRect(-0.9, -0.5, 1.8, 1.2);
     }
 
     if (v.kind !== "velo") {
@@ -1364,6 +1592,51 @@ function drawVehicles() {
   }
 }
 
+function drawUfo() {
+  const ufo = state.ufo;
+  if (!ufo) return;
+
+  const flash = ufo.hitFlash > 0 ? ufo.hitFlash / 0.18 : 0;
+  const glow = ctx.createRadialGradient(ufo.x, ufo.y, 8, ufo.x, ufo.y, 42);
+  glow.addColorStop(0, `rgba(165,255,237,${0.35 + flash * 0.25})`);
+  glow.addColorStop(1, "rgba(165,255,237,0)");
+  ctx.fillStyle = glow;
+  ctx.beginPath();
+  ctx.arc(ufo.x, ufo.y + 8, 42, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = flash > 0 ? "#f8fff6" : "#b9ffe9";
+  ctx.beginPath();
+  ctx.ellipse(ufo.x, ufo.y - 8, 16, 12, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = flash > 0 ? "#fff1b0" : "#79879a";
+  ctx.beginPath();
+  ctx.ellipse(ufo.x, ufo.y + 6, 34, 12, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "#e4f85d";
+  ctx.beginPath();
+  ctx.arc(ufo.x - 5, ufo.y - 10, 2.2, 0, Math.PI * 2);
+  ctx.arc(ufo.x + 5, ufo.y - 10, 2.2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#405112";
+  ctx.fillRect(ufo.x - 7, ufo.y - 4, 14, 2);
+
+  for (let i = -2; i <= 2; i += 1) {
+    ctx.fillStyle = i % 2 === 0 ? "#ff7e73" : "#6ef3ff";
+    ctx.beginPath();
+    ctx.arc(ufo.x + i * 11, ufo.y + 8, 2.6, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  const hpW = 52;
+  ctx.fillStyle = "#00000066";
+  ctx.fillRect(ufo.x - hpW / 2, ufo.y - 28, hpW, 6);
+  ctx.fillStyle = "#ff6c64";
+  ctx.fillRect(ufo.x - hpW / 2 + 1, ufo.y - 27, (hpW - 2) * Math.max(0, ufo.hp / ufo.maxHp), 4);
+}
+
 function drawPixelBlock(x, y, w, h, col) {
   ctx.fillStyle = col;
   ctx.fillRect(Math.round(x), Math.round(y), Math.max(1, Math.round(w)), Math.max(1, Math.round(h)));
@@ -1383,6 +1656,16 @@ function drawPunkSprite(base, r) {
   for (let i = -2; i <= 2; i += 1) {
     const spikeY = base.y - r - px * (0.9 + (i % 2) * 0.3 + 0.2 * anim);
     drawPixelBlock(base.x + i * px - px * 0.5, spikeY, px, px, mohawk);
+  }
+
+  if (base.accessory === "cap") {
+    drawPixelBlock(base.x - 2.2 * px, base.y - 2.7 * px, 4.4 * px, px * 0.8, isBlue ? "#215d70" : "#914038");
+    drawPixelBlock(base.x + 0.4 * px, base.y - 1.9 * px, 1.6 * px, px * 0.5, "#ffd76a");
+  } else if (base.accessory === "star") {
+    drawPixelBlock(base.x - 0.5 * px, base.y - 3 * px, px, px, "#ffe070");
+    drawPixelBlock(base.x - 1.4 * px, base.y - 2.1 * px, 2.8 * px, px * 0.6, "#ffe070");
+  } else {
+    drawPixelBlock(base.x - 2 * px, base.y - 1.3 * px, 4 * px, px * 0.45, "#111318");
   }
 
   drawPixelBlock(base.x - 2 * px, base.y - 2 * px, 4 * px, 4 * px, skin);
@@ -1410,6 +1693,12 @@ function drawPunkSprite(base, r) {
   const grin = 0.3 + 0.25 * anim;
   drawPixelBlock(base.x - 1.5 * px, base.y + px * (0.3 + grin), 3 * px, px, stitch);
   drawPixelBlock(base.x - 0.2 * px, base.y + px * (0.5 + grin), px * 0.8, px * 0.8, "#f3d278");
+
+  ctx.fillStyle = "#fff7cf";
+  ctx.font = `700 ${Math.max(8, Math.round(px * 2.2))}px 'Trebuchet MS'`;
+  ctx.textAlign = "center";
+  ctx.fillText(base.sticker, base.x, base.y - r * 1.3);
+  ctx.textAlign = "left";
 }
 
 function drawBases() {
@@ -1517,6 +1806,7 @@ function frame(now) {
   if (state.running) {
     updateStrategy(dt);
     updateBaseGrowthAndMerges(dt);
+    updateUfo(dt);
     updateVehicles(dt);
 
     const p1Alive = state.bases.some((b) => b.owner === 1);
@@ -1525,6 +1815,7 @@ function frame(now) {
       finalizeDistrict(!p1Alive ? 2 : !p2Alive ? 1 : null);
     }
   } else {
+    updateUfo(dt);
     updateVehicles(dt);
   }
 
@@ -1534,6 +1825,7 @@ function frame(now) {
   drawEventBursts(dt);
   drawLinks();
   drawShotFx(dt);
+  drawUfo();
   drawVehicles();
   drawBases();
   drawAimPreview();
