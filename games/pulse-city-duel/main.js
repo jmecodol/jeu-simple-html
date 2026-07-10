@@ -20,6 +20,7 @@ const VEHICLE_TYPES = [
 
 const LINK_IDLE_SECONDS = 11;
 const BASE_COOLDOWN_SECONDS = 0.32;
+const BASE_SIZE_MULT = 2;
 
 const districts = [
   {
@@ -98,7 +99,18 @@ const state = {
   fxTrails: [],
   vehicles: [],
   fallingVehicles: [],
+  pressBursts: [],
   winner: null,
+};
+
+const audioState = {
+  ctx: null,
+  master: null,
+  musicGain: null,
+  sfxGain: null,
+  initialized: false,
+  nextBeatAt: 0,
+  beatIndex: 0,
 };
 
 function activeDistrict() {
@@ -110,7 +122,7 @@ function baseSizeFactor(base) {
 }
 
 function baseVisualRadius(base) {
-  return state.baseRadius * baseSizeFactor(base);
+  return state.baseRadius * BASE_SIZE_MULT * baseSizeFactor(base);
 }
 
 function getLinkKey(parentId, childId) {
@@ -145,6 +157,111 @@ async function toggleFullscreen() {
 function updateFullscreenButton() {
   if (!fullscreenBtn) return;
   fullscreenBtn.textContent = document.fullscreenElement ? "Exit" : "FS";
+}
+
+function ensureAudio() {
+  if (audioState.initialized) return;
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return;
+
+  const ctxAudio = new Ctx();
+  const master = ctxAudio.createGain();
+  const musicGain = ctxAudio.createGain();
+  const sfxGain = ctxAudio.createGain();
+
+  master.gain.value = 0.65;
+  musicGain.gain.value = 0.18;
+  sfxGain.gain.value = 0.24;
+
+  musicGain.connect(master);
+  sfxGain.connect(master);
+  master.connect(ctxAudio.destination);
+
+  audioState.ctx = ctxAudio;
+  audioState.master = master;
+  audioState.musicGain = musicGain;
+  audioState.sfxGain = sfxGain;
+  audioState.initialized = true;
+  audioState.nextBeatAt = ctxAudio.currentTime;
+}
+
+function tone(targetGain, type, frequency, startAt, duration, volume, sweepTo = null) {
+  if (!audioState.initialized) return;
+  const osc = audioState.ctx.createOscillator();
+  const gain = audioState.ctx.createGain();
+  osc.type = type;
+  osc.frequency.setValueAtTime(frequency, startAt);
+  if (sweepTo !== null) {
+    osc.frequency.exponentialRampToValueAtTime(Math.max(22, sweepTo), startAt + duration);
+  }
+  gain.gain.setValueAtTime(0.0001, startAt);
+  gain.gain.exponentialRampToValueAtTime(Math.max(0.0001, volume), startAt + 0.01);
+  gain.gain.exponentialRampToValueAtTime(0.0001, startAt + duration);
+  osc.connect(gain);
+  gain.connect(targetGain);
+  osc.start(startAt);
+  osc.stop(startAt + duration + 0.03);
+}
+
+function playSfxShot(owner) {
+  if (!audioState.initialized) return;
+  const t = audioState.ctx.currentTime;
+  const base = owner === 1 ? 420 : 330;
+  tone(audioState.sfxGain, "triangle", base, t, 0.09, 0.16, base * 1.5);
+}
+
+function playSfxBuild(owner) {
+  if (!audioState.initialized) return;
+  const t = audioState.ctx.currentTime;
+  const base = owner === 1 ? 680 : 520;
+  tone(audioState.sfxGain, "square", base, t, 0.08, 0.1);
+  tone(audioState.sfxGain, "triangle", base * 1.5, t + 0.05, 0.08, 0.08);
+}
+
+function playSfxDestroy(power = 1) {
+  if (!audioState.initialized) return;
+  const t = audioState.ctx.currentTime;
+  const depth = 180 / Math.max(1, power);
+  tone(audioState.sfxGain, "sawtooth", 240, t, 0.15, 0.18, 90 + depth);
+}
+
+function playSfxFall() {
+  if (!audioState.initialized) return;
+  const t = audioState.ctx.currentTime;
+  tone(audioState.sfxGain, "triangle", 310, t, 0.12, 0.12, 95);
+}
+
+function playSfxPress(owner) {
+  if (!audioState.initialized) return;
+  const t = audioState.ctx.currentTime;
+  const f = owner === 1 ? 560 : 460;
+  tone(audioState.sfxGain, "sine", f, t, 0.07, 0.08);
+}
+
+function updateSoundtrack() {
+  if (!audioState.initialized || !state.running) return;
+  const bpm = 106;
+  const step = 60 / bpm / 2;
+  const ctxAudio = audioState.ctx;
+
+  while (audioState.nextBeatAt < ctxAudio.currentTime + 0.2) {
+    const beat = audioState.beatIndex % 16;
+    const t = audioState.nextBeatAt;
+
+    if (beat % 4 === 0) {
+      tone(audioState.musicGain, "sine", 60, t, 0.09, 0.2, 34);
+    }
+    if (beat % 4 === 2) {
+      tone(audioState.musicGain, "square", 170, t, 0.05, 0.08);
+    }
+    if (beat % 2 === 1) {
+      const note = [220, 247, 196, 247][Math.floor(beat / 2) % 4];
+      tone(audioState.musicGain, "triangle", note, t, 0.12, 0.07);
+    }
+
+    audioState.nextBeatAt += step;
+    audioState.beatIndex += 1;
+  }
 }
 
 function resizeCanvas() {
@@ -290,6 +407,8 @@ function makeVehiclesFall(filterFn) {
 function removeBases(baseIdsSet) {
   if (!baseIdsSet.size) return;
 
+  playSfxDestroy(baseIdsSet.size);
+
   for (const base of state.bases) {
     if (!base.children.length) continue;
     base.children = base.children.filter((id) => !baseIdsSet.has(id));
@@ -329,7 +448,7 @@ function isInNoBuildZone(x, y) {
 }
 
 function isEndpointValid(x, y) {
-  const margin = state.baseRadius * 1.6;
+  const margin = state.baseRadius * BASE_SIZE_MULT * 1.25;
   if (x < margin || x > state.w - margin || y < margin || y > state.h - margin) {
     return false;
   }
@@ -338,7 +457,7 @@ function isEndpointValid(x, y) {
 
   for (const b of state.bases) {
     const d = Math.hypot(x - b.x, y - b.y);
-    if (d < baseVisualRadius(b) + state.baseRadius * 1.1) {
+    if (d < baseVisualRadius(b) + state.baseRadius * BASE_SIZE_MULT * 0.8) {
       return false;
     }
   }
@@ -407,7 +526,12 @@ function applyShot(sourceBase, aim) {
   }
 
   const short = Math.min(state.w, state.h);
-  const reach = short * (0.16 + power * 0.45);
+  const minReach = state.baseRadius * BASE_SIZE_MULT * 2.6;
+  const maxReach = short * 0.92;
+  const intendedReach = Math.max(minReach, Math.min(maxReach, len));
+  const powerScale = 0.84 + power * 0.36;
+  const randomScale = 1 + (Math.random() - 0.5) * activeDistrict().directionChaos * 2.1;
+  const reach = Math.max(minReach, Math.min(maxReach, intendedReach * powerScale * randomScale));
   const baseAngle = Math.atan2(dirY, dirX);
   const chaoticAngle = baseAngle + (Math.random() - 0.5) * activeDistrict().directionChaos;
   const nx = Math.cos(chaoticAngle);
@@ -420,7 +544,7 @@ function applyShot(sourceBase, aim) {
   let endX = sourceBase.x + nx * reach + driftX;
   let endY = sourceBase.y + ny * reach + driftY;
 
-  const edge = state.baseRadius * 1.2;
+  const edge = state.baseRadius * BASE_SIZE_MULT * 0.95;
   endX = Math.max(edge, Math.min(state.w - edge, endX));
   endY = Math.max(edge, Math.min(state.h - edge, endY));
 
@@ -442,7 +566,10 @@ function applyShot(sourceBase, aim) {
 
   if (isEndpointValid(endX, endY)) {
     createBase(sourceBase.owner, endX, endY, sourceBase.id);
+    playSfxBuild(sourceBase.owner);
   }
+
+  playSfxShot(sourceBase.owner);
 
   state.fxTrails.push({
     ax: sourceBase.x,
@@ -524,6 +651,7 @@ function updateVehicles(dt) {
       const lastUsed = base.linkLastUsedAt.get(linkKey) ?? state.now;
       const age = state.now - lastUsed;
       if (age > LINK_IDLE_SECONDS) {
+        playSfxFall();
         makeVehiclesFall((v) => v.parentId === base.id && v.childId === childId);
         unlinkChild(base.id, childId);
       } else if (age < LINK_IDLE_SECONDS * 0.55 && Math.random() < dt * (0.85 - age / LINK_IDLE_SECONDS * 0.6)) {
@@ -590,10 +718,12 @@ function resetDistrictState() {
   state.fxTrails = [];
   state.vehicles = [];
   state.fallingVehicles = [];
+  state.pressBursts = [];
   state.winner = null;
 
-  const leftX = state.w * 0.14;
-  const rightX = state.w * 0.86;
+  const edgeGap = Math.max(state.baseRadius * BASE_SIZE_MULT * 1.45, Math.min(state.w, state.h) * 0.035);
+  const leftX = edgeGap;
+  const rightX = state.w - edgeGap;
   const y = state.h * 0.5;
 
   createBase(1, leftX, y, null);
@@ -627,6 +757,8 @@ function startSeason() {
 canvas.addEventListener("pointerdown", (evt) => {
   if (!state.running) return;
 
+  ensureAudio();
+
   const p = pointFromEvent(evt);
 
   let chosen = null;
@@ -638,6 +770,15 @@ canvas.addEventListener("pointerdown", (evt) => {
   }
 
   if (!chosen) return;
+
+  state.pressBursts.push({
+    x: chosen.x,
+    y: chosen.y,
+    owner: chosen.owner,
+    r: baseVisualRadius(chosen) * 0.5,
+    life: 0.45,
+  });
+  playSfxPress(chosen.owner);
 
   canvas.setPointerCapture(evt.pointerId);
   state.aimings.set(evt.pointerId, {
@@ -742,6 +883,28 @@ function drawNoBuildZones() {
     ctx.stroke();
 
   }
+}
+
+function drawPressBursts(dt) {
+  for (const b of state.pressBursts) {
+    b.life -= dt;
+    b.r += dt * Math.min(state.w, state.h) * 0.45;
+    const alpha = Math.max(0, b.life / 0.45);
+    const col = b.owner === 1 ? "70,230,255" : "255,150,130";
+
+    ctx.fillStyle = `rgba(${col}, ${0.16 * alpha})`;
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, b.r * 0.72, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = `rgba(${col}, ${0.9 * alpha})`;
+    ctx.lineWidth = Math.max(2, state.baseRadius * 0.28);
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  state.pressBursts = state.pressBursts.filter((b) => b.life > 0);
 }
 
 function drawLinks() {
@@ -956,6 +1119,7 @@ function frame(now) {
   state.now += dt;
   state.gaugeTime += dt;
   state.gaugeValue = (Math.sin(state.gaugeTime * 2.7) + 1) * 0.5;
+  updateSoundtrack();
 
   if (state.running) {
     state.districtTimeLeft = Math.max(0, state.districtTimeLeft - dt);
@@ -972,6 +1136,7 @@ function frame(now) {
 
   drawUrbanBackground();
   drawNoBuildZones();
+  drawPressBursts(dt);
   drawLinks();
   drawShotFx(dt);
   drawVehicles();
@@ -982,6 +1147,7 @@ function frame(now) {
 }
 
 startBtn.addEventListener("click", () => {
+  ensureAudio();
   if (startBtn.textContent.includes("Nouvelle saison")) {
     enterFullscreen();
     startSeason();
