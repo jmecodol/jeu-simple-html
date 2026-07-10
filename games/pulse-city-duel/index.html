@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pulse City Duel</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="back" href="../../index.html">Retour menu</a>
+      <div class="titleWrap">
+        <h1>Pulse City Duel</h1>
+        <p id="districtInfo">Saison urbaine en cours</p>
+      </div>
+      <button id="restartBtn" type="button">Nouvelle saison</button>
+    </header>
+
+    <main class="stageWrap">
+      <canvas id="gameCanvas"></canvas>
+
+      <aside class="hudCol leftCol">
+        <div class="badge p1">J1</div>
+        <div class="score" id="scoreP1">0</div>
+      </aside>
+
+      <aside class="hudCol rightCol">
+        <div class="badge p2">J2</div>
+        <div class="score" id="scoreP2">0</div>
+      </aside>
+
+      <section id="overlay" class="overlay show">
+        <div class="panel">
+          <h2 id="panelTitle">Pulse City - Duel de quartiers</h2>
+          <p id="panelText">
+            Appuie sur une de tes bases, puis dessine ton tir en glissant.
+            La jauge se deplace directement sur la ligne de trajectoire: relache au bon timing.
+            Tu peux donner une courbe pendant le glisse, avec une part de chaos urbain aleatoire.
+          </p>
+          <div class="panelActions">
+            <button id="startBtn" type="button">Lancer le district</button>
+            <button id="nextBtn" type="button" class="ghost hidden">District suivant</button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

@@ -4,6 +4,7 @@ Le projet contient maintenant un **menu principal** à la racine (`index.html`) 
 
 - **Guerre Spatiale** (jeu original) dans `games/guerre-spatiale/`
 - **Lucioles Jumelles** (nouveau jeu coop multi-touch) dans `games/lucioles-jumelles/`
+- **Pulse City Duel** (duel tactique a trajectoires et suppression en cascade) dans `games/pulse-city-duel/`
 - **Mario Duo** (clone plateforme 2 joueurs style Mario Bros) dans `games/mario-duo/`
 
 ---
