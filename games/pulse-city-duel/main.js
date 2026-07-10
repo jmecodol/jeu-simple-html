@@ -11,6 +11,16 @@ const startBtn = document.getElementById("startBtn");
 const nextBtn = document.getElementById("nextBtn");
 const restartBtn = document.getElementById("restartBtn");
 
+const VEHICLE_TYPES = [
+  { kind: "ambulance", icon: "AM", speed: 0.16, color: "#e9f8ff" },
+  { kind: "taxi", icon: "TX", speed: 0.13, color: "#ffd44c" },
+  { kind: "limousine", icon: "LM", speed: 0.1, color: "#1b1e27" },
+  { kind: "velo", icon: "VL", speed: 0.2, color: "#8af7a5" },
+];
+
+const LINK_IDLE_SECONDS = 11;
+const BASE_COOLDOWN_SECONDS = 0.32;
+
 const districts = [
   {
     name: "Quartier Startups",
@@ -18,7 +28,7 @@ const districts = [
     bg: ["#1b2435", "#202f47", "#324669"],
     wind: { x: 0.03, y: -0.02 },
     zones: [{ x: 0.55, y: 0.43, r: 0.08, label: "Plaza noir" }],
-    turnLimit: 22,
+    matchSeconds: 78,
     directionChaos: 0.12,
     curveChaos: 0.16,
   },
@@ -28,7 +38,7 @@ const districts = [
     bg: ["#17283f", "#1d4464", "#2b708f"],
     wind: { x: 0.09, y: 0.02 },
     zones: [{ x: 0.5, y: 0.5, r: 0.09, label: "Dock pixel" }],
-    turnLimit: 24,
+    matchSeconds: 82,
     directionChaos: 0.16,
     curveChaos: 0.22,
   },
@@ -41,7 +51,7 @@ const districts = [
       { x: 0.45, y: 0.36, r: 0.07, label: "Musee glitch" },
       { x: 0.58, y: 0.62, r: 0.07, label: "Arcade grin" },
     ],
-    turnLimit: 24,
+    matchSeconds: 82,
     directionChaos: 0.11,
     curveChaos: 0.18,
   },
@@ -51,7 +61,7 @@ const districts = [
     bg: ["#281a42", "#5a2f67", "#9f4a58"],
     wind: { x: 0.0, y: 0.0 },
     zones: [{ x: 0.5, y: 0.52, r: 0.1, label: "Main stage" }],
-    turnLimit: 20,
+    matchSeconds: 75,
     pulseJitter: true,
     directionChaos: 0.21,
     curveChaos: 0.26,
@@ -65,7 +75,7 @@ const districts = [
       { x: 0.39, y: 0.5, r: 0.065, label: "Jardin vert" },
       { x: 0.62, y: 0.5, r: 0.065, label: "Hub solaire" },
     ],
-    turnLimit: 26,
+    matchSeconds: 86,
     directionChaos: 0.14,
     curveChaos: 0.2,
   },
@@ -73,24 +83,45 @@ const districts = [
 
 const state = {
   running: false,
+  now: 0,
   w: 0,
   h: 0,
   baseRadius: 0,
   baseIdCounter: 1,
-  currentPlayer: 1,
   districtIndex: 0,
   districtWins: { 1: 0, 2: 0 },
-  districtTurnsLeft: 0,
+  districtTimeLeft: 0,
   bases: [],
-  aiming: null,
+  aimings: new Map(),
   gaugeTime: 0,
   gaugeValue: 0.5,
   fxTrails: [],
+  vehicles: [],
+  fallingVehicles: [],
   winner: null,
 };
 
 function activeDistrict() {
   return districts[state.districtIndex];
+}
+
+function baseSizeFactor(base) {
+  return 1 + Math.min(0.9, base.children.length * 0.11);
+}
+
+function baseVisualRadius(base) {
+  return state.baseRadius * baseSizeFactor(base);
+}
+
+function getLinkKey(parentId, childId) {
+  return `${parentId}->${childId}`;
+}
+
+function updateLabels() {
+  const district = activeDistrict();
+  districtInfo.textContent = `${district.name} - ${district.subtitle}`;
+  scoreP1.textContent = String(state.districtWins[1]);
+  scoreP2.textContent = String(state.districtWins[2]);
 }
 
 function resizeCanvas() {
@@ -101,56 +132,7 @@ function resizeCanvas() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   state.w = rect.width;
   state.h = rect.height;
-  state.baseRadius = Math.max(11, Math.min(state.w, state.h) * 0.026);
-}
-
-function updateLabels() {
-  const district = activeDistrict();
-  districtInfo.textContent = `${district.name} - ${district.subtitle}`;
-  scoreP1.textContent = String(state.districtWins[1]);
-  scoreP2.textContent = String(state.districtWins[2]);
-}
-
-function resetDistrictState() {
-  state.baseIdCounter = 1;
-  state.currentPlayer = 1;
-  state.districtTurnsLeft = activeDistrict().turnLimit;
-  state.bases = [];
-  state.aiming = null;
-  state.fxTrails = [];
-  state.winner = null;
-
-  const leftX = state.w * 0.14;
-  const rightX = state.w * 0.86;
-  const y = state.h * 0.5;
-
-  createBase(1, leftX, y, null);
-  createBase(2, rightX, y, null);
-}
-
-function startDistrict() {
-  resizeCanvas();
-  resetDistrictState();
-  updateLabels();
-  state.running = true;
-  overlay.classList.remove("show");
-  nextBtn.classList.add("hidden");
-  startBtn.classList.remove("hidden");
-  startBtn.textContent = "Rejouer ce district";
-}
-
-function startSeason() {
-  state.districtIndex = 0;
-  state.districtWins = { 1: 0, 2: 0 };
-  panelTitle.textContent = "Pulse City - Duel de quartiers";
-  panelText.textContent =
-    "Maintiens une base, dessine ton angle et ta courbe, puis relache au bon timing. " +
-    "La jauge est collee sur ta ligne de tir. Les traces ont une part d aleatoire, tout comme la courbure finale. " +
-    "Si tu coupes une base ennemie, son arbre disparait.";
-  startBtn.textContent = "Lancer le district";
-  nextBtn.classList.add("hidden");
-  updateLabels();
-  startDistrict();
+  state.baseRadius = Math.max(11, Math.min(state.w, state.h) * 0.023);
 }
 
 function pointFromEvent(evt) {
@@ -163,14 +145,11 @@ function quadraticAt(t, p0, p1, p2) {
   return omt * omt * p0 + 2 * omt * t * p1 + t * t * p2;
 }
 
-function sampleQuadraticPoints(ax, ay, cx, cy, bx, by, segments = 24) {
+function sampleQuadraticPoints(ax, ay, cx, cy, bx, by, segments = 28) {
   const points = [];
   for (let i = 0; i <= segments; i += 1) {
     const t = i / segments;
-    points.push({
-      x: quadraticAt(t, ax, cx, bx),
-      y: quadraticAt(t, ay, cy, by),
-    });
+    points.push({ x: quadraticAt(t, ax, cx, bx), y: quadraticAt(t, ay, cy, by) });
   }
   return points;
 }
@@ -186,13 +165,19 @@ function createBase(owner, x, y, parentId) {
     pulse: Math.random() * Math.PI * 2,
     spriteSeed: Math.random() * Math.PI * 2,
     spriteMood: Math.floor(Math.random() * 3),
+    cooldownUntil: 0,
+    linkLastUsedAt: new Map(),
   };
 
   state.bases.push(base);
 
   if (parentId !== null) {
     const parent = state.bases.find((b) => b.id === parentId);
-    if (parent) parent.children.push(base.id);
+    if (parent) {
+      parent.children.push(base.id);
+      parent.linkLastUsedAt.set(getLinkKey(parent.id, base.id), state.now);
+      createVehicleOnLink(parent.id, base.id, owner, 0.05 + Math.random() * 0.2);
+    }
   }
 
   return base;
@@ -237,12 +222,72 @@ function collectSubtreeIds(rootId, set) {
   }
 }
 
+function setLinkUsage(parentId, childId) {
+  const parent = state.bases.find((b) => b.id === parentId);
+  if (!parent) return;
+  parent.linkLastUsedAt.set(getLinkKey(parentId, childId), state.now);
+}
+
+function unlinkChild(parentId, childId) {
+  const parent = state.bases.find((b) => b.id === parentId);
+  const child = state.bases.find((b) => b.id === childId);
+  if (parent) {
+    parent.children = parent.children.filter((id) => id !== childId);
+    parent.linkLastUsedAt.delete(getLinkKey(parentId, childId));
+  }
+  if (child && child.parentId === parentId) {
+    child.parentId = null;
+  }
+}
+
+function makeVehiclesFall(filterFn) {
+  const survivors = [];
+  for (const v of state.vehicles) {
+    if (!filterFn(v)) {
+      survivors.push(v);
+      continue;
+    }
+
+    const p = getVehiclePosition(v);
+    state.fallingVehicles.push({
+      x: p.x,
+      y: p.y,
+      vx: (Math.random() - 0.5) * 140,
+      vy: -110 - Math.random() * 130,
+      spin: (Math.random() - 0.5) * 6,
+      angle: Math.random() * Math.PI * 2,
+      icon: v.icon,
+      color: v.color,
+      life: 3.5,
+    });
+  }
+  state.vehicles = survivors;
+}
+
 function removeBases(baseIdsSet) {
   if (!baseIdsSet.size) return;
 
   for (const base of state.bases) {
     if (!base.children.length) continue;
     base.children = base.children.filter((id) => !baseIdsSet.has(id));
+    for (const deadId of baseIdsSet) {
+      base.linkLastUsedAt.delete(getLinkKey(base.id, deadId));
+    }
+  }
+
+  for (const base of state.bases) {
+    if (baseIdsSet.has(base.id)) continue;
+    if (base.parentId !== null && baseIdsSet.has(base.parentId)) {
+      base.parentId = null;
+    }
+  }
+
+  makeVehiclesFall((v) => baseIdsSet.has(v.parentId) || baseIdsSet.has(v.childId));
+
+  for (const [pointerId, aim] of state.aimings.entries()) {
+    if (baseIdsSet.has(aim.baseId)) {
+      state.aimings.delete(pointerId);
+    }
   }
 
   state.bases = state.bases.filter((base) => !baseIdsSet.has(base.id));
@@ -270,7 +315,7 @@ function isEndpointValid(x, y) {
 
   for (const b of state.bases) {
     const d = Math.hypot(x - b.x, y - b.y);
-    if (d < state.baseRadius * 2.05) {
+    if (d < baseVisualRadius(b) + state.baseRadius * 1.1) {
       return false;
     }
   }
@@ -289,7 +334,10 @@ function buildControlPoint(sourceBase, aimX, aimY, pathPoints, reach, dirAngle) 
     let strongest = 0;
     for (const p of pathPoints) {
       const d = distancePointToSegment(p.x, p.y, sourceBase.x, sourceBase.y, aimX, aimY);
-      const side = ((aimX - sourceBase.x) * (p.y - sourceBase.y) - (aimY - sourceBase.y) * (p.x - sourceBase.x)) >= 0 ? 1 : -1;
+      const side =
+        (aimX - sourceBase.x) * (p.y - sourceBase.y) - (aimY - sourceBase.y) * (p.x - sourceBase.x) >= 0
+          ? 1
+          : -1;
       const signed = d * side;
       if (Math.abs(signed) > Math.abs(strongest)) strongest = signed;
     }
@@ -305,11 +353,30 @@ function buildControlPoint(sourceBase, aimX, aimY, pathPoints, reach, dirAngle) 
   };
 }
 
+function createVehicleOnLink(parentId, childId, owner, progress = Math.random()) {
+  const type = VEHICLE_TYPES[Math.floor(Math.random() * VEHICLE_TYPES.length)];
+  state.vehicles.push({
+    parentId,
+    childId,
+    owner,
+    t: progress,
+    speed: type.speed * (0.8 + Math.random() * 0.5),
+    icon: type.icon,
+    color: type.color,
+    kind: type.kind,
+    dir: Math.random() < 0.5 ? 1 : -1,
+    wobble: Math.random() * Math.PI * 2,
+  });
+}
+
 function applyShot(sourceBase, aim) {
   const dirX = aim.x - sourceBase.x;
   const dirY = aim.y - sourceBase.y;
   const len = Math.hypot(dirX, dirY);
   if (len < 10) return;
+
+  if (sourceBase.cooldownUntil > state.now) return;
+  sourceBase.cooldownUntil = state.now + BASE_COOLDOWN_SECONDS;
 
   let power = state.gaugeValue;
   if (activeDistrict().pulseJitter) {
@@ -341,7 +408,7 @@ function applyShot(sourceBase, aim) {
   const touchedEnemyBases = state.bases.filter((b) => {
     if (b.owner !== enemy) return false;
     const d = distancePointToPolyline(b.x, b.y, shotPoints);
-    return d <= state.baseRadius * 0.95;
+    return d <= baseVisualRadius(b) * 0.95;
   });
 
   const toRemove = new Set();
@@ -365,18 +432,6 @@ function applyShot(sourceBase, aim) {
     ttl: 0.62,
     jitterSeed: Math.random() * Math.PI * 2,
   });
-
-  state.districtTurnsLeft -= 1;
-
-  const p1Alive = state.bases.some((b) => b.owner === 1);
-  const p2Alive = state.bases.some((b) => b.owner === 2);
-
-  if (!p1Alive || !p2Alive || state.districtTurnsLeft <= 0) {
-    finalizeDistrict(!p1Alive ? 2 : !p2Alive ? 1 : null);
-    return;
-  }
-
-  state.currentPlayer = state.currentPlayer === 1 ? 2 : 1;
 }
 
 function finalizeDistrict(forcedWinner = null) {
@@ -400,15 +455,13 @@ function finalizeDistrict(forcedWinner = null) {
   const districtName = activeDistrict().name;
   if (!winner) {
     panelTitle.textContent = `${districtName} - Egalite`;
-    panelText.textContent =
-      "Les deux reseaux finissent au meme niveau. Relance ce district pour les departager.";
+    panelText.textContent = "Les deux reseaux finissent au meme niveau. Relance ce district pour les departager.";
     nextBtn.classList.add("hidden");
     startBtn.classList.remove("hidden");
     startBtn.textContent = "Rejouer ce district";
   } else if (state.districtIndex < districts.length - 1) {
     panelTitle.textContent = `${districtName} gagne par J${winner}`;
-    panelText.textContent =
-      `Le collectif J${winner} remporte ce quartier. Passez au district suivant pour continuer la saison.`;
+    panelText.textContent = `Le collectif J${winner} remporte ce quartier. Passez au district suivant.`;
     startBtn.classList.add("hidden");
     nextBtn.classList.remove("hidden");
   } else {
@@ -430,15 +483,132 @@ function finalizeDistrict(forcedWinner = null) {
   overlay.classList.add("show");
 }
 
+function getVehiclePosition(v) {
+  const parent = state.bases.find((b) => b.id === v.parentId);
+  const child = state.bases.find((b) => b.id === v.childId);
+  if (!parent || !child) return { x: 0, y: 0 };
+  const t = v.t;
+  return {
+    x: parent.x + (child.x - parent.x) * t,
+    y: parent.y + (child.y - parent.y) * t,
+  };
+}
+
+function updateVehicles(dt) {
+  for (const base of state.bases) {
+    for (const childId of base.children) {
+      const linkKey = getLinkKey(base.id, childId);
+      const lastUsed = base.linkLastUsedAt.get(linkKey) ?? state.now;
+      const age = state.now - lastUsed;
+      if (age > LINK_IDLE_SECONDS) {
+        makeVehiclesFall((v) => v.parentId === base.id && v.childId === childId);
+        unlinkChild(base.id, childId);
+      } else if (age < LINK_IDLE_SECONDS * 0.55 && Math.random() < dt * (0.85 - age / LINK_IDLE_SECONDS * 0.6)) {
+        createVehicleOnLink(base.id, childId, base.owner);
+      }
+    }
+  }
+
+  const survivors = [];
+  for (const v of state.vehicles) {
+    const parent = state.bases.find((b) => b.id === v.parentId);
+    const child = state.bases.find((b) => b.id === v.childId);
+    if (!parent || !child || !parent.children.includes(child.id)) {
+      const p = getVehiclePosition(v);
+      state.fallingVehicles.push({
+        x: p.x,
+        y: p.y,
+        vx: (Math.random() - 0.5) * 140,
+        vy: -110 - Math.random() * 130,
+        spin: (Math.random() - 0.5) * 6,
+        angle: Math.random() * Math.PI * 2,
+        icon: v.icon,
+        color: v.color,
+        life: 3.5,
+      });
+      continue;
+    }
+
+    const dir = v.dir;
+    v.t += dir * v.speed * dt;
+    if (v.t >= 1) {
+      v.t = 1;
+      v.dir = -1;
+      setLinkUsage(parent.id, child.id);
+    } else if (v.t <= 0) {
+      v.t = 0;
+      v.dir = 1;
+      setLinkUsage(parent.id, child.id);
+    }
+
+    survivors.push(v);
+  }
+  state.vehicles = survivors;
+
+  for (const f of state.fallingVehicles) {
+    f.vy += 260 * dt;
+    f.x += f.vx * dt;
+    f.y += f.vy * dt;
+    f.angle += f.spin * dt;
+    if (f.y > state.h - 6 && f.vy > 0) {
+      f.vy *= -0.42;
+      f.vx *= 0.85;
+    }
+    f.life -= dt;
+  }
+  state.fallingVehicles = state.fallingVehicles.filter((f) => f.life > 0);
+}
+
+function resetDistrictState() {
+  state.baseIdCounter = 1;
+  state.districtTimeLeft = activeDistrict().matchSeconds;
+  state.bases = [];
+  state.aimings = new Map();
+  state.fxTrails = [];
+  state.vehicles = [];
+  state.fallingVehicles = [];
+  state.winner = null;
+
+  const leftX = state.w * 0.14;
+  const rightX = state.w * 0.86;
+  const y = state.h * 0.5;
+
+  createBase(1, leftX, y, null);
+  createBase(2, rightX, y, null);
+}
+
+function startDistrict() {
+  resizeCanvas();
+  resetDistrictState();
+  updateLabels();
+  state.running = true;
+  overlay.classList.remove("show");
+  nextBtn.classList.add("hidden");
+  startBtn.classList.remove("hidden");
+  startBtn.textContent = "Rejouer ce district";
+}
+
+function startSeason() {
+  state.districtIndex = 0;
+  state.districtWins = { 1: 0, 2: 0 };
+  panelTitle.textContent = "Pulse City - Duel de quartiers";
+  panelText.textContent =
+    "Les deux joueurs jouent en meme temps. Trace ta direction et ta courbe, puis relache sur la jauge mobile. " +
+    "Le trafic urbain vit sur les chemins: s ils ne servent plus, ils meurent.";
+  startBtn.textContent = "Lancer le district";
+  nextBtn.classList.add("hidden");
+  updateLabels();
+  startDistrict();
+}
+
 canvas.addEventListener("pointerdown", (evt) => {
   if (!state.running) return;
 
   const p = pointFromEvent(evt);
-  const ownBases = state.bases.filter((b) => b.owner === state.currentPlayer);
 
   let chosen = null;
-  for (const b of ownBases) {
-    if (distance({ x: p.x, y: p.y }, b) <= state.baseRadius * 1.1) {
+  for (const b of state.bases) {
+    if (distance({ x: p.x, y: p.y }, b) <= baseVisualRadius(b)) {
       chosen = b;
       break;
     }
@@ -447,31 +617,33 @@ canvas.addEventListener("pointerdown", (evt) => {
   if (!chosen) return;
 
   canvas.setPointerCapture(evt.pointerId);
-  state.aiming = {
+  state.aimings.set(evt.pointerId, {
     pointerId: evt.pointerId,
     baseId: chosen.id,
+    owner: chosen.owner,
     x: p.x,
     y: p.y,
     pathPoints: [{ x: p.x, y: p.y }],
-  };
+  });
 });
 
 canvas.addEventListener("pointermove", (evt) => {
-  if (!state.aiming || evt.pointerId !== state.aiming.pointerId) return;
+  const aim = state.aimings.get(evt.pointerId);
+  if (!aim) return;
   const p = pointFromEvent(evt);
-  state.aiming.x = p.x;
-  state.aiming.y = p.y;
-  state.aiming.pathPoints.push({ x: p.x, y: p.y });
-  if (state.aiming.pathPoints.length > 26) {
-    state.aiming.pathPoints.shift();
+  aim.x = p.x;
+  aim.y = p.y;
+  aim.pathPoints.push({ x: p.x, y: p.y });
+  if (aim.pathPoints.length > 28) {
+    aim.pathPoints.shift();
   }
 });
 
 function releaseAim(pointerId) {
-  if (!state.aiming || state.aiming.pointerId !== pointerId) return;
-  const aim = state.aiming;
+  const aim = state.aimings.get(pointerId);
+  if (!aim) return;
+  state.aimings.delete(pointerId);
   const source = state.bases.find((b) => b.id === aim.baseId);
-  state.aiming = null;
   if (!state.running || !source) return;
   applyShot(source, aim);
 }
@@ -558,20 +730,24 @@ function drawNoBuildZones() {
 }
 
 function drawLinks() {
-  ctx.lineWidth = Math.max(2, state.baseRadius * 0.48);
-  ctx.lineCap = "round";
-
   for (const b of state.bases) {
-    if (b.parentId === null) continue;
-    const parent = state.bases.find((n) => n.id === b.parentId);
-    if (!parent) continue;
+    for (const childId of b.children) {
+      const child = state.bases.find((n) => n.id === childId);
+      if (!child) continue;
+      const linkKey = getLinkKey(b.id, child.id);
+      const lastUsed = b.linkLastUsedAt.get(linkKey) ?? state.now;
+      const freshness = Math.max(0, 1 - (state.now - lastUsed) / LINK_IDLE_SECONDS);
+      if (freshness <= 0) continue;
 
-    const c = b.owner === 1 ? "#80dff4" : "#ffb39b";
-    ctx.strokeStyle = c;
-    ctx.beginPath();
-    ctx.moveTo(parent.x, parent.y);
-    ctx.lineTo(b.x, b.y);
-    ctx.stroke();
+      ctx.strokeStyle =
+        b.owner === 1 ? `rgba(128, 223, 244, ${0.18 + freshness * 0.55})` : `rgba(255, 179, 155, ${0.18 + freshness * 0.55})`;
+      ctx.lineWidth = Math.max(2, state.baseRadius * (0.36 + freshness * 0.45));
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(b.x, b.y);
+      ctx.lineTo(child.x, child.y);
+      ctx.stroke();
+    }
   }
 }
 
@@ -591,14 +767,46 @@ function drawShotFx(dt) {
   }
 }
 
+function drawVehicles() {
+  for (const v of state.vehicles) {
+    const parent = state.bases.find((b) => b.id === v.parentId);
+    const child = state.bases.find((b) => b.id === v.childId);
+    if (!parent || !child) continue;
+
+    const p = getVehiclePosition(v);
+    const heading = Math.atan2(child.y - parent.y, child.x - parent.x) + Math.sin(state.gaugeTime * 6 + v.wobble) * 0.04;
+
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(heading);
+    ctx.fillStyle = "#0a0d139a";
+    ctx.fillRect(-10, -6, 20, 12);
+    ctx.fillStyle = v.color;
+    ctx.fillRect(-9, -5, 18, 10);
+    ctx.fillStyle = v.kind === "limousine" ? "#d6d9df" : "#11151d";
+    ctx.font = "700 8px 'Trebuchet MS'";
+    ctx.textAlign = "center";
+    ctx.fillText(v.icon, 0, 3);
+    ctx.restore();
+  }
+
+  for (const f of state.fallingVehicles) {
+    ctx.save();
+    ctx.translate(f.x, f.y);
+    ctx.rotate(f.angle);
+    ctx.fillStyle = f.color;
+    ctx.fillRect(-9, -5, 18, 10);
+    ctx.fillStyle = "#11151d";
+    ctx.font = "700 8px 'Trebuchet MS'";
+    ctx.textAlign = "center";
+    ctx.fillText(f.icon, 0, 3);
+    ctx.restore();
+  }
+}
+
 function drawPixelBlock(x, y, w, h, col) {
   ctx.fillStyle = col;
-  ctx.fillRect(
-    Math.round(x),
-    Math.round(y),
-    Math.max(1, Math.round(w)),
-    Math.max(1, Math.round(h)),
-  );
+  ctx.fillRect(Math.round(x), Math.round(y), Math.max(1, Math.round(w)), Math.max(1, Math.round(h)));
 }
 
 function drawPunkSprite(base, r) {
@@ -646,9 +854,8 @@ function drawPunkSprite(base, r) {
 
 function drawBases() {
   for (const b of state.bases) {
-    const isCurrent = state.currentPlayer === b.owner && state.running;
     const pulse = 0.55 + 0.45 * Math.sin(state.gaugeTime * 3 + b.pulse);
-    const r = state.baseRadius * (isCurrent ? 1.06 + 0.06 * pulse : 1);
+    const r = baseVisualRadius(b) * (1.01 + 0.05 * pulse);
 
     const glow = ctx.createRadialGradient(b.x, b.y, r * 0.3, b.x, b.y, r * 2.3);
     if (b.owner === 1) {
@@ -680,76 +887,59 @@ function drawBases() {
 }
 
 function drawAimPreview() {
-  if (!state.aiming) return;
-  const src = state.bases.find((b) => b.id === state.aiming.baseId);
-  if (!src) return;
+  for (const aim of state.aimings.values()) {
+    const src = state.bases.find((b) => b.id === aim.baseId);
+    if (!src) continue;
 
-  const dx = state.aiming.x - src.x;
-  const dy = state.aiming.y - src.y;
-  const len = Math.hypot(dx, dy);
-  if (len < 8) return;
+    const dx = aim.x - src.x;
+    const dy = aim.y - src.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 8) continue;
 
-  const angle = Math.atan2(dy, dx);
-  const control = buildControlPoint(src, state.aiming.x, state.aiming.y, state.aiming.pathPoints, len, angle);
+    const angle = Math.atan2(dy, dx);
+    const control = buildControlPoint(src, aim.x, aim.y, aim.pathPoints, len, angle);
 
-  ctx.strokeStyle = state.currentPlayer === 1 ? "#9beff8" : "#ffc0b6";
-  ctx.lineWidth = 2;
-  ctx.setLineDash([8, 8]);
-  ctx.beginPath();
-  ctx.moveTo(src.x, src.y);
-  ctx.quadraticCurveTo(control.x, control.y, state.aiming.x, state.aiming.y);
-  ctx.stroke();
-  ctx.setLineDash([]);
+    ctx.strokeStyle = aim.owner === 1 ? "#9beff8" : "#ffc0b6";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([8, 8]);
+    ctx.beginPath();
+    ctx.moveTo(src.x, src.y);
+    ctx.quadraticCurveTo(control.x, control.y, aim.x, aim.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
 
-  const gaugeT = 0.15 + 0.75 * state.gaugeValue;
-  const gx = quadraticAt(gaugeT, src.x, control.x, state.aiming.x);
-  const gy = quadraticAt(gaugeT, src.y, control.y, state.aiming.y);
-  const gaugeCol = state.currentPlayer === 1 ? "#59ecff" : "#ff8c7d";
+    const gaugeT = 0.15 + 0.75 * state.gaugeValue;
+    const gx = quadraticAt(gaugeT, src.x, control.x, aim.x);
+    const gy = quadraticAt(gaugeT, src.y, control.y, aim.y);
+    const gaugeCol = aim.owner === 1 ? "#59ecff" : "#ff8c7d";
 
-  ctx.fillStyle = gaugeCol;
-  ctx.beginPath();
-  ctx.arc(gx, gy, Math.max(6, state.baseRadius * 0.46), 0, Math.PI * 2);
-  ctx.fill();
+    ctx.fillStyle = gaugeCol;
+    ctx.beginPath();
+    ctx.arc(gx, gy, Math.max(6, state.baseRadius * 0.46), 0, Math.PI * 2);
+    ctx.fill();
 
-  ctx.strokeStyle = "#ffffffcc";
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.arc(gx, gy, Math.max(9, state.baseRadius * 0.72), 0, Math.PI * 2);
-  ctx.stroke();
-
-  ctx.fillStyle = "#f4f3e9";
-  ctx.font = "700 12px 'Trebuchet MS'";
-  ctx.textAlign = "left";
-  ctx.fillText("Jauge", gx + 11, gy - 9);
+    ctx.strokeStyle = "#ffffffcc";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(gx, gy, Math.max(9, state.baseRadius * 0.72), 0, Math.PI * 2);
+    ctx.stroke();
+  }
 }
 
 function drawTopHud() {
+  const p1Count = state.bases.filter((b) => b.owner === 1).length;
+  const p2Count = state.bases.filter((b) => b.owner === 2).length;
   ctx.fillStyle = "#00000063";
-  ctx.fillRect(state.w / 2 - 144, 10, 288, 36);
+  ctx.fillRect(state.w / 2 - 178, 10, 356, 36);
   ctx.fillStyle = "#f8f7ee";
   ctx.font = "700 14px 'Trebuchet MS'";
   ctx.textAlign = "center";
-  ctx.fillText(`Tour J${state.currentPlayer} | Coups restants: ${state.districtTurnsLeft}`, state.w / 2, 33);
+  ctx.fillText(
+    `J1 ${p1Count} bases  |  J2 ${p2Count} bases  |  ${Math.ceil(state.districtTimeLeft)}s`,
+    state.w / 2,
+    33,
+  );
   ctx.textAlign = "left";
-}
-
-let lastTime = performance.now();
-function frame(now) {
-  const dt = Math.min(0.05, (now - lastTime) / 1000);
-  lastTime = now;
-
-  state.gaugeTime += dt;
-  state.gaugeValue = (Math.sin(state.gaugeTime * 2.7) + 1) * 0.5;
-
-  drawUrbanBackground();
-  drawNoBuildZones();
-  drawLinks();
-  drawShotFx(dt);
-  drawBases();
-  drawAimPreview();
-  drawTopHud();
-
-  requestAnimationFrame(frame);
 }
 
 function nextDistrict() {
@@ -757,6 +947,40 @@ function nextDistrict() {
     state.districtIndex += 1;
     startDistrict();
   }
+}
+
+let lastTime = performance.now();
+function frame(now) {
+  const dt = Math.min(0.05, (now - lastTime) / 1000);
+  lastTime = now;
+
+  state.now += dt;
+  state.gaugeTime += dt;
+  state.gaugeValue = (Math.sin(state.gaugeTime * 2.7) + 1) * 0.5;
+
+  if (state.running) {
+    state.districtTimeLeft = Math.max(0, state.districtTimeLeft - dt);
+    updateVehicles(dt);
+
+    const p1Alive = state.bases.some((b) => b.owner === 1);
+    const p2Alive = state.bases.some((b) => b.owner === 2);
+    if (!p1Alive || !p2Alive || state.districtTimeLeft <= 0) {
+      finalizeDistrict(!p1Alive ? 2 : !p2Alive ? 1 : null);
+    }
+  } else {
+    updateVehicles(dt);
+  }
+
+  drawUrbanBackground();
+  drawNoBuildZones();
+  drawLinks();
+  drawShotFx(dt);
+  drawVehicles();
+  drawBases();
+  drawAimPreview();
+  drawTopHud();
+
+  requestAnimationFrame(frame);
 }
 
 startBtn.addEventListener("click", () => {
@@ -774,3 +998,4 @@ window.addEventListener("resize", resizeCanvas);
 resizeCanvas();
 updateLabels();
 requestAnimationFrame(frame);
+
