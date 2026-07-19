@@ -73,7 +73,6 @@ const MOBILE = {
   shootQueued: false,
   jumpQueued: false,
   actionStartX: 0,
-  sprintQueuedDir: 0,
   crawlQueuedDir: 0,
 };
 
@@ -81,6 +80,10 @@ const INFINITE_LIVES = true;
 const JUMP_VELOCITY = -930;
 const POWER_DOUBLE_JUMP_MULTIPLIER = 1.35;
 const HOOK_DETECTION_ANGLE_DEG = 30;
+const AUTO_RUN_DELAY_SECONDS = 2;
+const ENEMY_SWIPE_MAX_RANGE = 760;
+const ENEMY_SWIPE_ANGLE_DEG = 24;
+const ENEMY_NEAR_RANGE = 170;
 
 function clamp(v, min, max) {
   return Math.max(min, Math.min(max, v));
@@ -197,6 +200,8 @@ function spawnPlayer(x = 120) {
     sprintDir: 0,
     crawlTimer: 0,
     crawlDir: 0,
+    walkRunTimer: 0,
+    lastWalkDir: 0,
     trail: [],
   };
 }
@@ -511,6 +516,12 @@ function ensureMobileHud() {
       return;
     }
 
+    if (executeSwipeEnemyAction(dx, dy)) {
+      MOBILE.actionJumpTriggered = false;
+      MOBILE.actionPointerId = null;
+      return;
+    }
+
     if (tryAttachFromSwipeDirection(dx, dy, HOOK_DETECTION_ANGLE_DEG)) {
       MOBILE.actionJumpTriggered = false;
       MOBILE.actionPointerId = null;
@@ -521,8 +532,6 @@ function ensureMobileHud() {
       MOBILE.jumpQueued = true;
     } else if (dy > Math.abs(dx) * 0.6) {
       MOBILE.crawlQueuedDir = dx === 0 ? state.player.facing : Math.sign(dx);
-    } else {
-      MOBILE.sprintQueuedDir = dx === 0 ? state.player.facing : Math.sign(dx);
     }
 
     MOBILE.actionJumpTriggered = false;
@@ -801,6 +810,87 @@ function getNearestEnemy(maxRange) {
   return best;
 }
 
+function getSwipeEnemyTarget(swipeDx, swipeDy, maxRange = ENEMY_SWIPE_MAX_RANGE, angleDeg = ENEMY_SWIPE_ANGLE_DEG) {
+  const p = state.player;
+  if (!p) return null;
+
+  const mag = Math.hypot(swipeDx, swipeDy);
+  if (mag < 10) return null;
+
+  const sx = swipeDx / mag;
+  const sy = swipeDy / mag;
+  const px = p.x + p.w * 0.5;
+  const py = p.y + p.h * 0.45;
+  let best = null;
+  let bestDist = Number.POSITIVE_INFINITY;
+
+  for (const enemy of state.enemies) {
+    if (enemy.hp <= 0) continue;
+    const ex = enemy.x + enemy.w * 0.5;
+    const ey = enemy.y + enemy.h * 0.4;
+    const vx = ex - px;
+    const vy = ey - py;
+    const d = Math.hypot(vx, vy);
+    if (d > maxRange || d < 10) continue;
+
+    const nx = vx / d;
+    const ny = vy / d;
+    const dot = clamp(sx * nx + sy * ny, -1, 1);
+    const a = (Math.acos(dot) * 180) / Math.PI;
+    if (a <= angleDeg && d < bestDist) {
+      best = enemy;
+      bestDist = d;
+    }
+  }
+
+  if (state.boss && state.boss.hp > 0) {
+    const ex = state.boss.x + state.boss.w * 0.5;
+    const ey = state.boss.y + state.boss.h * 0.4;
+    const vx = ex - px;
+    const vy = ey - py;
+    const d = Math.hypot(vx, vy);
+    if (d <= maxRange && d >= 10) {
+      const nx = vx / d;
+      const ny = vy / d;
+      const dot = clamp(sx * nx + sy * ny, -1, 1);
+      const a = (Math.acos(dot) * 180) / Math.PI;
+      if (a <= angleDeg && d < bestDist) {
+        best = state.boss;
+      }
+    }
+  }
+
+  return best;
+}
+
+function executeSwipeEnemyAction(swipeDx, swipeDy) {
+  const p = state.player;
+  if (!p) return false;
+
+  const target = getSwipeEnemyTarget(swipeDx, swipeDy);
+  if (!target) return false;
+
+  const px = p.x + p.w * 0.5;
+  const py = p.y + p.h * 0.45;
+  const tx = target.x + target.w * 0.5;
+  const ty = target.y + target.h * 0.4;
+  const d = Math.hypot(tx - px, ty - py);
+  const dir = tx >= px ? 1 : -1;
+  p.facing = dir;
+
+  if (d > ENEMY_NEAR_RANGE) {
+    shootCaptureWeb(tx, ty);
+    hitEnemy(target, 26, dir);
+    return true;
+  }
+
+  target.x = p.x + dir * 36;
+  target.y = p.y;
+  hitEnemy(target, 30, dir);
+  p.vx -= dir * 60;
+  return true;
+}
+
 function fireMobileShot() {
   const p = state.player;
   if (!p) return;
@@ -834,10 +924,6 @@ function updateInput(dt) {
       fireMobileShot();
       MOBILE.shootQueued = false;
     }
-    if (MOBILE.sprintQueuedDir !== 0) {
-      triggerSprint(MOBILE.sprintQueuedDir);
-      MOBILE.sprintQueuedDir = 0;
-    }
     if (MOBILE.crawlQueuedDir !== 0) {
       triggerCrawl(MOBILE.crawlQueuedDir);
       MOBILE.crawlQueuedDir = 0;
@@ -854,9 +940,7 @@ function updateInput(dt) {
   const p = state.player;
   p.jumpBuffer -= dt;
   if (state.keys.jump) {
-    if (!tryAutoSwingFromJumpInput()) {
-      p.jumpBuffer = 0.16;
-    }
+    p.jumpBuffer = 0.16;
   }
   state.keys.jump = false;
 }
@@ -996,16 +1080,28 @@ function updatePlayer(dt) {
   let maxSpeed = p.dodgeTime > 0 ? 440 : 280;
   let move = (state.keys.left ? -1 : 0) + (state.keys.right ? 1 : 0);
 
-  if (p.sprintTimer > 0) {
+  if (!p.webAttached && p.crawlTimer <= 0 && p.onGround && move !== 0) {
+    const moveDir = Math.sign(move);
+    if (p.lastWalkDir !== 0 && moveDir !== p.lastWalkDir) {
+      p.walkRunTimer = 0;
+    }
+    p.lastWalkDir = moveDir;
+    p.walkRunTimer = Math.min(AUTO_RUN_DELAY_SECONDS + 1.5, p.walkRunTimer + dt);
+  } else {
+    p.walkRunTimer = Math.max(0, p.walkRunTimer - dt * 2);
+    if (move === 0) p.lastWalkDir = 0;
+  }
+
+  if (p.walkRunTimer >= AUTO_RUN_DELAY_SECONDS && p.crawlTimer <= 0) {
     accel = 3000;
     maxSpeed = 560;
-    move = p.sprintDir || move;
   }
 
   if (p.crawlTimer > 0) {
     accel = 1200;
     maxSpeed = 130;
     move = p.crawlDir || move;
+    p.walkRunTimer = 0;
   }
 
   if (move !== 0) {
