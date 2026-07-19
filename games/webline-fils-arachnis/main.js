@@ -5,6 +5,7 @@ const overlay = document.getElementById("overlay");
 const startBtn = document.getElementById("startBtn");
 const restartBtn = document.getElementById("restartBtn");
 const fullscreenBtn = document.getElementById("fullscreenBtn");
+const latestBtn = document.getElementById("latestBtn");
 
 const state = {
   running: false,
@@ -1595,6 +1596,21 @@ function toggleFullscreen() {
   }
 }
 
+async function reloadLatestVersion() {
+  try {
+    if ("caches" in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((key) => caches.delete(key)));
+    }
+  } catch {
+    // Ignore cache clear errors and still force navigation reload.
+  }
+
+  const url = new URL(window.location.href);
+  url.searchParams.set("v", String(Date.now()));
+  window.location.replace(url.toString());
+}
+
 startBtn.addEventListener("click", () => {
   resetGame(120);
   state.running = true;
@@ -1609,6 +1625,7 @@ restartBtn.addEventListener("click", () => {
 });
 
 fullscreenBtn.addEventListener("click", toggleFullscreen);
+latestBtn.addEventListener("click", reloadLatestVersion);
 
 window.addEventListener("resize", () => {
   resizeCanvas();

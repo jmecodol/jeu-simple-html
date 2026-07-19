@@ -60,6 +60,7 @@ body {
 }
 
 .back,
+#latestBtn,
 #fullscreenBtn,
 #restartBtn,
 #startBtn {
@@ -79,6 +80,11 @@ body {
 #fullscreenBtn {
   background: #0f2e52;
   color: #d2edff;
+}
+
+#latestBtn {
+  background: #dff8f2;
+  color: #0f4f3f;
 }
 
 #restartBtn,
@@ -237,6 +243,7 @@ body {
   }
 
   .back,
+  #latestBtn,
   #fullscreenBtn,
   #restartBtn,
   #startBtn {
