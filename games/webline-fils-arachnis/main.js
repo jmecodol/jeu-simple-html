@@ -66,11 +66,15 @@ const MOBILE = {
   moveLastX: 0,
   moveLastY: 0,
   actionBtnEl: null,
+  actionLastX: 0,
   actionStartY: 0,
   actionLastY: 0,
   actionJumpTriggered: false,
   shootQueued: false,
   jumpQueued: false,
+  actionStartX: 0,
+  sprintQueuedDir: 0,
+  crawlQueuedDir: 0,
 };
 
 const INFINITE_LIVES = true;
@@ -187,6 +191,10 @@ function spawnPlayer(x = 120) {
     webAnchor: null,
     webLen: 0,
     webAttached: false,
+    sprintTimer: 0,
+    sprintDir: 0,
+    crawlTimer: 0,
+    crawlDir: 0,
     trail: [],
   };
 }
@@ -464,7 +472,9 @@ function ensureMobileHud() {
     event.preventDefault();
     if (MOBILE.actionPointerId !== null) return;
     MOBILE.actionPointerId = event.pointerId;
+    MOBILE.actionStartX = event.clientX;
     MOBILE.actionStartY = event.clientY;
+    MOBILE.actionLastX = event.clientX;
     MOBILE.actionLastY = event.clientY;
     MOBILE.actionJumpTriggered = false;
     actionZone.setPointerCapture(event.pointerId);
@@ -473,19 +483,37 @@ function ensureMobileHud() {
   actionZone.addEventListener("pointermove", (event) => {
     if (event.pointerId !== MOBILE.actionPointerId) return;
     event.preventDefault();
+    MOBILE.actionLastX = event.clientX;
     MOBILE.actionLastY = event.clientY;
-    if (!MOBILE.actionJumpTriggered && event.clientY - MOBILE.actionStartY < -18) {
-      MOBILE.jumpQueued = true;
-      MOBILE.actionJumpTriggered = true;
-    }
   });
 
   const releaseActionPad = (event) => {
     if (event.pointerId !== MOBILE.actionPointerId) return;
+    const dx = MOBILE.actionLastX - MOBILE.actionStartX;
     const dy = MOBILE.actionLastY - MOBILE.actionStartY;
-    if (!MOBILE.actionJumpTriggered && dy > -14) {
+    const swipeLen = Math.hypot(dx, dy);
+
+    if (swipeLen < 16) {
       MOBILE.shootQueued = true;
+      MOBILE.actionJumpTriggered = false;
+      MOBILE.actionPointerId = null;
+      return;
     }
+
+    if (tryAttachFromSwipeDirection(dx, dy, 20)) {
+      MOBILE.actionJumpTriggered = false;
+      MOBILE.actionPointerId = null;
+      return;
+    }
+
+    if (dy < -Math.abs(dx) * 0.6) {
+      MOBILE.jumpQueued = true;
+    } else if (dy > Math.abs(dx) * 0.6) {
+      MOBILE.crawlQueuedDir = dx === 0 ? state.player.facing : Math.sign(dx);
+    } else {
+      MOBILE.sprintQueuedDir = dx === 0 ? state.player.facing : Math.sign(dx);
+    }
+
     MOBILE.actionJumpTriggered = false;
     MOBILE.actionPointerId = null;
   };
@@ -582,6 +610,60 @@ function triggerDodge() {
   p.vx = p.facing * 460;
 }
 
+function triggerSprint(dir) {
+  const p = state.player;
+  if (!p) return;
+  p.sprintDir = dir === 0 ? p.facing : Math.sign(dir);
+  p.sprintTimer = 0.34;
+  p.crawlTimer = 0;
+  p.vx = p.sprintDir * 520;
+}
+
+function triggerCrawl(dir) {
+  const p = state.player;
+  if (!p) return;
+  p.crawlDir = dir === 0 ? p.facing : Math.sign(dir);
+  p.crawlTimer = 0.42;
+  p.sprintTimer = 0;
+  p.vx = p.crawlDir * 120;
+}
+
+function tryAttachFromSwipeDirection(swipeDx, swipeDy, angleMarginDeg = 20) {
+  const p = state.player;
+  if (!p || p.webAttached || p.webCd > 0 || p.stamina < 12) return false;
+
+  const swipeMag = Math.hypot(swipeDx, swipeDy);
+  if (swipeMag < 18) return false;
+
+  const sx = swipeDx / swipeMag;
+  const sy = swipeDy / swipeMag;
+  const px = p.x + p.w * 0.5;
+  const py = p.y + p.h * 0.35;
+  let bestAnchor = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+
+  for (const anchor of state.surfaces.anchors) {
+    const ax = anchor.x - px;
+    const ay = anchor.y - py;
+    const ad = Math.hypot(ax, ay);
+    if (ad < 24 || ad > 420) continue;
+
+    const nx = ax / ad;
+    const ny = ay / ad;
+    const dot = clamp(sx * nx + sy * ny, -1, 1);
+    const angleDeg = (Math.acos(dot) * 180) / Math.PI;
+    if (angleDeg <= angleMarginDeg && ad < bestDistance) {
+      bestAnchor = anchor;
+      bestDistance = ad;
+    }
+  }
+
+  if (!bestAnchor) return false;
+
+  launchMobilityWeb(bestAnchor.x, bestAnchor.y);
+  return p.webAttached;
+}
+
 function tryAutoSwingFromJumpInput() {
   const p = state.player;
   if (!p || p.webAttached || p.webCd > 0 || p.stamina < 12) return false;
@@ -676,6 +758,14 @@ function updateInput(dt) {
     if (MOBILE.shootQueued) {
       fireMobileShot();
       MOBILE.shootQueued = false;
+    }
+    if (MOBILE.sprintQueuedDir !== 0) {
+      triggerSprint(MOBILE.sprintQueuedDir);
+      MOBILE.sprintQueuedDir = 0;
+    }
+    if (MOBILE.crawlQueuedDir !== 0) {
+      triggerCrawl(MOBILE.crawlQueuedDir);
+      MOBILE.crawlQueuedDir = 0;
     }
   }
 
@@ -817,6 +907,8 @@ function updatePlayer(dt) {
   p.attackCd = Math.max(0, p.attackCd - dt);
   p.attackTime = Math.max(0, p.attackTime - dt);
   p.dodgeTime = Math.max(0, p.dodgeTime - dt);
+  p.sprintTimer = Math.max(0, p.sprintTimer - dt);
+  p.crawlTimer = Math.max(0, p.crawlTimer - dt);
   p.invuln = Math.max(0, p.invuln - dt);
   p.wallContact = Math.max(0, p.wallContact - dt);
   p.jumpGrace = p.onGround ? 0.11 : Math.max(0, p.jumpGrace - dt);
@@ -825,12 +917,24 @@ function updatePlayer(dt) {
     p.stamina = Math.min(p.maxStamina, p.stamina + dt * 11);
   }
 
-  const accel = p.dodgeTime > 0 ? 900 : 1900;
-  const maxSpeed = p.dodgeTime > 0 ? 440 : 280;
-  const move = (state.keys.left ? -1 : 0) + (state.keys.right ? 1 : 0);
+  let accel = p.dodgeTime > 0 ? 900 : 1900;
+  let maxSpeed = p.dodgeTime > 0 ? 440 : 280;
+  let move = (state.keys.left ? -1 : 0) + (state.keys.right ? 1 : 0);
+
+  if (p.sprintTimer > 0) {
+    accel = 3000;
+    maxSpeed = 560;
+    move = p.sprintDir || move;
+  }
+
+  if (p.crawlTimer > 0) {
+    accel = 1200;
+    maxSpeed = 130;
+    move = p.crawlDir || move;
+  }
 
   if (move !== 0) {
-    p.facing = move;
+    p.facing = Math.sign(move);
     p.vx += move * accel * dt;
   } else {
     p.vx = lerp(p.vx, 0, clamp(dt * 8, 0, 1));
