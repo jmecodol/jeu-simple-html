@@ -79,6 +79,8 @@ const MOBILE = {
 
 const INFINITE_LIVES = true;
 const JUMP_VELOCITY = -930;
+const POWER_DOUBLE_JUMP_MULTIPLIER = 1.35;
+const HOOK_DETECTION_ANGLE_DEG = 30;
 
 function clamp(v, min, max) {
   return Math.max(min, Math.min(max, v));
@@ -500,7 +502,16 @@ function ensureMobileHud() {
       return;
     }
 
-    if (tryAttachFromSwipeDirection(dx, dy, 20)) {
+    if (state.player && state.player.webAttached) {
+      if (!tryRetargetWebFromSwipeDirection(dx, dy, HOOK_DETECTION_ANGLE_DEG)) {
+        triggerWebSwipeDoubleJump(dx, dy);
+      }
+      MOBILE.actionJumpTriggered = false;
+      MOBILE.actionPointerId = null;
+      return;
+    }
+
+    if (tryAttachFromSwipeDirection(dx, dy, HOOK_DETECTION_ANGLE_DEG)) {
       MOBILE.actionJumpTriggered = false;
       MOBILE.actionPointerId = null;
       return;
@@ -628,7 +639,29 @@ function triggerCrawl(dir) {
   p.vx = p.crawlDir * 120;
 }
 
-function tryAttachFromSwipeDirection(swipeDx, swipeDy, angleMarginDeg = 20) {
+function triggerWebSwipeDoubleJump(swipeDx, swipeDy) {
+  const p = state.player;
+  if (!p || !p.webAttached) return;
+
+  const mag = Math.hypot(swipeDx, swipeDy);
+  const nx = mag > 0 ? swipeDx / mag : p.facing;
+  const ny = mag > 0 ? swipeDy / mag : -1;
+
+  p.webAttached = false;
+  p.webAnchor = null;
+  p.webLen = 0;
+  p.sprintTimer = 0;
+  p.crawlTimer = 0;
+
+  // Powerful launch upward, with directional push from swipe.
+  p.vx = nx * 520;
+  p.vy = Math.min(-120, ny * 220) + JUMP_VELOCITY * POWER_DOUBLE_JUMP_MULTIPLIER;
+  p.onGround = false;
+  p.jumpGrace = 0;
+  p.jumpsLeft = 0;
+}
+
+function tryAttachFromSwipeDirection(swipeDx, swipeDy, angleMarginDeg = HOOK_DETECTION_ANGLE_DEG) {
   const p = state.player;
   if (!p || p.webAttached || p.webCd > 0 || p.stamina < 12) return false;
 
@@ -662,6 +695,47 @@ function tryAttachFromSwipeDirection(swipeDx, swipeDy, angleMarginDeg = 20) {
 
   launchMobilityWeb(bestAnchor.x, bestAnchor.y);
   return p.webAttached;
+}
+
+function tryRetargetWebFromSwipeDirection(swipeDx, swipeDy, angleMarginDeg = HOOK_DETECTION_ANGLE_DEG) {
+  const p = state.player;
+  if (!p || !p.webAttached || !p.webAnchor || p.stamina < 8) return false;
+
+  const swipeMag = Math.hypot(swipeDx, swipeDy);
+  if (swipeMag < 18) return false;
+
+  const sx = swipeDx / swipeMag;
+  const sy = swipeDy / swipeMag;
+  const px = p.x + p.w * 0.5;
+  const py = p.y + p.h * 0.35;
+  let bestAnchor = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+
+  for (const anchor of state.surfaces.anchors) {
+    if (Math.hypot(anchor.x - p.webAnchor.x, anchor.y - p.webAnchor.y) < 10) continue;
+
+    const ax = anchor.x - px;
+    const ay = anchor.y - py;
+    const ad = Math.hypot(ax, ay);
+    if (ad < 24 || ad > 420) continue;
+
+    const nx = ax / ad;
+    const ny = ay / ad;
+    const dot = clamp(sx * nx + sy * ny, -1, 1);
+    const angleDeg = (Math.acos(dot) * 180) / Math.PI;
+    if (angleDeg <= angleMarginDeg && ad < bestDistance) {
+      bestAnchor = anchor;
+      bestDistance = ad;
+    }
+  }
+
+  if (!bestAnchor) return false;
+
+  p.webAnchor = { x: bestAnchor.x, y: bestAnchor.y };
+  p.webLen = clamp(bestDistance * 0.88, 50, 360);
+  p.webCd = 0.08;
+  p.stamina = Math.max(0, p.stamina - 8);
+  return true;
 }
 
 function tryAutoSwingFromJumpInput() {
@@ -741,11 +815,12 @@ function updateInput(dt) {
   if (!state.player) return;
 
   if (MOBILE.active) {
-    state.keys.left = MOBILE.stickX < -0.4;
-    state.keys.right = MOBILE.stickX > 0.4;
+    const moveThreshold = state.player.webAttached ? 0.24 : 0.4;
+    state.keys.left = MOBILE.stickX < -moveThreshold;
+    state.keys.right = MOBILE.stickX > moveThreshold;
     if (state.player.webAttached) {
-      state.keys.up = MOBILE.stickY < -0.35;
-      state.keys.down = MOBILE.stickY > 0.35;
+      state.keys.up = MOBILE.stickY < -0.24;
+      state.keys.down = MOBILE.stickY > 0.24;
     } else {
       state.keys.up = false;
       state.keys.down = false;
@@ -881,14 +956,14 @@ function applyWebSwing(p, dt) {
   const inputX = (state.keys.right ? 1 : 0) - (state.keys.left ? 1 : 0);
   const inputY = (state.keys.down ? 1 : 0) - (state.keys.up ? 1 : 0);
   if (inputX !== 0 || inputY !== 0) {
-    p.vx += inputX * 920 * dt;
-    p.vy += inputY * 820 * dt;
+    p.vx += inputX * 1600 * dt;
+    p.vy += inputY * 1450 * dt;
   }
 
   if (state.keys.up) {
-    p.webLen = Math.max(52, p.webLen - 185 * dt);
+    p.webLen = Math.max(44, p.webLen - 320 * dt);
   } else if (state.keys.down) {
-    p.webLen = Math.min(390, p.webLen + 185 * dt);
+    p.webLen = Math.min(420, p.webLen + 320 * dt);
   }
 
   p.stamina = Math.max(0, p.stamina - dt * 8.5);
