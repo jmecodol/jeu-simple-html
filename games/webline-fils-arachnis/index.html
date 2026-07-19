@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Webline - Fils d'Arachnis</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="back" href="../../index.html"><- Menu</a>
+      <h1>Webline: Fils d'Arachnis</h1>
+      <div class="actions">
+        <button id="fullscreenBtn" type="button">Plein ecran</button>
+        <button id="restartBtn" type="button">Rejouer</button>
+      </div>
+    </header>
+
+    <main class="stageWrap">
+      <canvas id="gameCanvas" aria-label="Zone de jeu Webline"></canvas>
+
+      <section id="overlay" class="overlay show">
+        <div class="panel">
+          <h2>Webline: Fils d'Arachnis</h2>
+          <p>
+            Traverse la ville moderne, neutralise les gangs armes et maitrise ta toile pour
+            te balancer, grimper et coller aux murs et plafonds.
+          </p>
+          <p class="hint">
+            Clavier: A/D ou fleches, Space saut, Shift esquive, E attaque, clic gauche toile
+            mobilite, clic droit toile capture.
+          </p>
+          <button id="startBtn" type="button">Jouer</button>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>
