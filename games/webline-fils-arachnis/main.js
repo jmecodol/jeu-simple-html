@@ -93,6 +93,7 @@ const AUTO_RUN_DELAY_SECONDS = 2;
 const ENEMY_SWIPE_MAX_RANGE = 760;
 const ENEMY_SWIPE_ANGLE_DEG = 24;
 const ENEMY_NEAR_RANGE = 170;
+const GROUND_BOTTOM_MARGIN = 110;
 
 function clamp(v, min, max) {
   return Math.max(min, Math.min(max, v));
@@ -125,7 +126,7 @@ function resizeCanvas() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   state.width = rect.width;
   state.height = rect.height;
-  state.world.floorY = state.height - 36;
+  state.world.floorY = state.height - GROUND_BOTTOM_MARGIN;
 }
 
 function buildLevel() {
@@ -159,36 +160,17 @@ function buildLevel() {
     { x: 4700, y: state.world.floorY - 430, w: 24, h: 280 },
   ];
 
-  const anchors = [
-    { x: 420, y: 150 },
-    { x: 720, y: 118 },
-    { x: 1040, y: 104 },
-    { x: 1440, y: 122 },
-    { x: 1870, y: 96 },
-    { x: 2200, y: 112 },
-    { x: 2550, y: 90 },
-    { x: 3020, y: 100 },
-    { x: 3420, y: 94 },
-    { x: 3860, y: 112 },
-    { x: 4300, y: 96 },
-    { x: 4680, y: 100 },
-    { x: 5200, y: 110 },
-    { x: 5700, y: 88 },
-  ];
+  const anchors = [];
 
-  // Add high-altitude hook routes to make vertical traversal meaningful.
-  for (let i = 0; i < 22; i += 1) {
-    anchors.push({
-      x: 240 + i * 280 + (i % 2 === 0 ? 0 : 80),
-      y: -220 - i * 58,
-    });
-  }
+  // Hooks are mounted on wall surfaces: left and right edges at regular vertical intervals.
+  for (const wall of walls) {
+    for (let y = wall.y + 24; y <= wall.y + wall.h - 24; y += 78) {
+      anchors.push({ x: wall.x - 8, y });
+      anchors.push({ x: wall.x + wall.w + 8, y });
+    }
 
-  for (let i = 0; i < 16; i += 1) {
-    anchors.push({
-      x: 420 + i * 360,
-      y: -580 - (i % 5) * 120,
-    });
+    // A top mount helps transition from one wall to another.
+    anchors.push({ x: wall.x + wall.w * 0.5, y: wall.y + 10 });
   }
 
   state.surfaces.blocks = blocks;
@@ -1094,6 +1076,10 @@ function resolveSolid(body) {
   }
 
   for (const wall of state.surfaces.walls) {
+    if (body === state.player && state.player.webAttached) {
+      continue;
+    }
+
     if (!overlaps(body, wall)) continue;
 
     const overlapX1 = wall.x + wall.w - body.x;
