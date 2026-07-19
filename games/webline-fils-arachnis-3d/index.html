@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Webline 3D - Fils d'Arachnis</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="back" href="../../index.html"><- Menu</a>
+      <h1>Webline 3D</h1>
+      <div class="actions">
+        <button id="latestBtn" type="button">Derniere version</button>
+        <button id="fullscreenBtn" type="button">Plein ecran</button>
+        <button id="restartBtn" type="button">Rejouer</button>
+      </div>
+    </header>
+
+    <main class="stageWrap">
+      <canvas id="gameCanvas" aria-label="Webline 3D"></canvas>
+
+      <section id="overlay" class="overlay">
+        <div class="panel">
+          <h2 id="overlayTitle">Webline 3D</h2>
+          <p id="overlayText">Mission terminee.</p>
+          <button id="startBtn" type="button">Rejouer</button>
+        </div>
+      </section>
+
+      <div class="mobileHud" id="mobileHud">
+        <div class="zone left" id="moveZone">
+          <div class="stick" id="moveStick">
+            <div class="knob" id="moveKnob"></div>
+          </div>
+        </div>
+        <div class="zone right" id="actionZone">
+          <div class="actionRing">
+            <button class="actionBtn" id="actionBtn" type="button">ACT</button>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

@@ -1,0 +1,205 @@
+* {
+  box-sizing: border-box;
+}
+
+:root {
+  --bg1: #091322;
+  --bg2: #040912;
+  --ink: #dff2ff;
+  --accent: #ff476f;
+  --accent2: #20a6ff;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overscroll-behavior: none;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  color: var(--ink);
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+  background: linear-gradient(180deg, var(--bg1), var(--bg2));
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.topbar {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: calc(8px + env(safe-area-inset-top)) calc(10px + env(safe-area-inset-right)) 8px
+    calc(10px + env(safe-area-inset-left));
+  background: #000b1fcc;
+  border-bottom: 1px solid #84c7ff33;
+}
+
+.topbar h1 {
+  margin: 0;
+  text-align: center;
+  font-size: clamp(0.95rem, 3vw, 1.25rem);
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.back,
+#latestBtn,
+#fullscreenBtn,
+#restartBtn,
+#startBtn {
+  border: none;
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.back {
+  text-decoration: none;
+  background: #eaf4ff;
+  color: #0c2d48;
+}
+
+#latestBtn {
+  background: #def7ef;
+  color: #0f4e3f;
+}
+
+#fullscreenBtn {
+  background: #16375a;
+  color: #d5f1ff;
+}
+
+#restartBtn,
+#startBtn {
+  background: linear-gradient(135deg, var(--accent), #b91f43);
+  color: #fff;
+}
+
+.stageWrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+#gameCanvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: #020913bf;
+}
+
+.overlay.show {
+  display: flex;
+}
+
+.panel {
+  width: min(620px, 94vw);
+  border-radius: 20px;
+  background: #0c1b2dde;
+  border: 1px solid #89ccff66;
+  color: #ebf7ff;
+  padding: 18px;
+  text-align: center;
+  box-shadow: 0 20px 40px #00000066;
+}
+
+.mobileHud {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  pointer-events: none;
+}
+
+.zone {
+  pointer-events: auto;
+  touch-action: none;
+  position: relative;
+  height: 100%;
+}
+
+.zone.left {
+  width: 74%;
+}
+
+.zone.right {
+  width: 26%;
+}
+
+.stick {
+  pointer-events: none;
+  position: absolute;
+  left: calc(22px + env(safe-area-inset-left));
+  bottom: calc(18px + env(safe-area-inset-bottom));
+  width: 136px;
+  height: 136px;
+  border-radius: 50%;
+  border: 1px solid #99ceff70;
+  background: #07192aab;
+}
+
+.knob {
+  position: absolute;
+  left: 40px;
+  top: 40px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: #79c8ffcc;
+}
+
+.actionRing {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 132px;
+  height: 132px;
+  border-radius: 50%;
+  border: 2px solid #9bcfff6b;
+  background: radial-gradient(circle at 30% 30%, #22456aa3, #07192cab 70%);
+  display: grid;
+  place-items: center;
+}
+
+.actionBtn {
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  border: 1px solid #ffd8e166;
+  background: radial-gradient(circle at 28% 24%, #ff5f83, #aa1f43 72%);
+  color: #fff7fb;
+  font-weight: 800;
+  font-size: 0.9rem;
+}
+
+.actionBtn:active {
+  transform: scale(0.95);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .mobileHud {
+    display: none;
+  }
+}
