@@ -17,10 +17,12 @@ const state = {
   world: {
     width: 6400,
     floorY: 0,
-    ceilingY: 86,
+    topY: -1650,
+    ceilingY: -1580,
     gravity: 1950,
   },
   cameraX: 0,
+  cameraY: 0,
   time: 0,
   dt: 0,
   score: 0,
@@ -74,6 +76,13 @@ const MOBILE = {
   jumpQueued: false,
   actionStartX: 0,
   crawlQueuedDir: 0,
+  preview: {
+    active: false,
+    mode: "",
+    targetX: 0,
+    targetY: 0,
+    color: "#d7f0ff",
+  },
 };
 
 const INFINITE_LIVES = true;
@@ -99,6 +108,12 @@ function dist(ax, ay, bx, by) {
 
 function overlaps(a, b) {
   return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+function getPlayerCenter() {
+  const p = state.player;
+  if (!p) return { x: 0, y: 0 };
+  return { x: p.x + p.w * 0.5, y: p.y + p.h * 0.45 };
 }
 
 function resizeCanvas() {
@@ -160,6 +175,21 @@ function buildLevel() {
     { x: 5200, y: 110 },
     { x: 5700, y: 88 },
   ];
+
+  // Add high-altitude hook routes to make vertical traversal meaningful.
+  for (let i = 0; i < 22; i += 1) {
+    anchors.push({
+      x: 240 + i * 280 + (i % 2 === 0 ? 0 : 80),
+      y: -220 - i * 58,
+    });
+  }
+
+  for (let i = 0; i < 16; i += 1) {
+    anchors.push({
+      x: 420 + i * 360,
+      y: -580 - (i % 5) * 120,
+    });
+  }
 
   state.surfaces.blocks = blocks;
   state.surfaces.walls = walls;
@@ -296,6 +326,8 @@ function resetGame(startX = 120) {
   spawnEnemies();
   state.currentCheckpoint = startX;
   state.cameraX = clamp(startX - state.width * 0.35, 0, state.world.width - state.width);
+  const maxCameraY = state.world.floorY - state.height;
+  state.cameraY = clamp(state.player.y - state.height * 0.48, state.world.topY, maxCameraY);
 }
 
 function setMessage(text) {
@@ -309,7 +341,7 @@ function pointerEventToWorld(event) {
   state.pointer.x = x;
   state.pointer.y = y;
   state.pointer.worldX = x + state.cameraX;
-  state.pointer.worldY = y;
+  state.pointer.worldY = y + state.cameraY;
 }
 
 function setKey(code, pressed) {
@@ -484,6 +516,8 @@ function ensureMobileHud() {
     MOBILE.actionLastX = event.clientX;
     MOBILE.actionLastY = event.clientY;
     MOBILE.actionJumpTriggered = false;
+    MOBILE.preview.active = true;
+    updateActionPreviewFromSwipe(0, 0);
     actionZone.setPointerCapture(event.pointerId);
   });
 
@@ -492,6 +526,10 @@ function ensureMobileHud() {
     event.preventDefault();
     MOBILE.actionLastX = event.clientX;
     MOBILE.actionLastY = event.clientY;
+    updateActionPreviewFromSwipe(
+      MOBILE.actionLastX - MOBILE.actionStartX,
+      MOBILE.actionLastY - MOBILE.actionStartY
+    );
   });
 
   const releaseActionPad = (event) => {
@@ -504,6 +542,7 @@ function ensureMobileHud() {
       MOBILE.shootQueued = true;
       MOBILE.actionJumpTriggered = false;
       MOBILE.actionPointerId = null;
+      MOBILE.preview.active = false;
       return;
     }
 
@@ -513,18 +552,21 @@ function ensureMobileHud() {
       }
       MOBILE.actionJumpTriggered = false;
       MOBILE.actionPointerId = null;
+      MOBILE.preview.active = false;
       return;
     }
 
     if (executeSwipeEnemyAction(dx, dy)) {
       MOBILE.actionJumpTriggered = false;
       MOBILE.actionPointerId = null;
+      MOBILE.preview.active = false;
       return;
     }
 
     if (tryAttachFromSwipeDirection(dx, dy, HOOK_DETECTION_ANGLE_DEG)) {
       MOBILE.actionJumpTriggered = false;
       MOBILE.actionPointerId = null;
+      MOBILE.preview.active = false;
       return;
     }
 
@@ -536,6 +578,7 @@ function ensureMobileHud() {
 
     MOBILE.actionJumpTriggered = false;
     MOBILE.actionPointerId = null;
+    MOBILE.preview.active = false;
   };
 
   actionZone.addEventListener("pointerup", releaseActionPad);
@@ -670,12 +713,12 @@ function triggerWebSwipeDoubleJump(swipeDx, swipeDy) {
   p.jumpsLeft = 0;
 }
 
-function tryAttachFromSwipeDirection(swipeDx, swipeDy, angleMarginDeg = HOOK_DETECTION_ANGLE_DEG) {
+function findSwipeHookTarget(swipeDx, swipeDy, angleMarginDeg = HOOK_DETECTION_ANGLE_DEG, requireDifferentFromCurrent = false) {
   const p = state.player;
-  if (!p || p.webAttached || p.webCd > 0 || p.stamina < 12) return false;
+  if (!p) return null;
 
   const swipeMag = Math.hypot(swipeDx, swipeDy);
-  if (swipeMag < 18) return false;
+  if (swipeMag < 18) return null;
 
   const sx = swipeDx / swipeMag;
   const sy = swipeDy / swipeMag;
@@ -685,6 +728,14 @@ function tryAttachFromSwipeDirection(swipeDx, swipeDy, angleMarginDeg = HOOK_DET
   let bestDistance = Number.POSITIVE_INFINITY;
 
   for (const anchor of state.surfaces.anchors) {
+    if (
+      requireDifferentFromCurrent &&
+      p.webAnchor &&
+      Math.hypot(anchor.x - p.webAnchor.x, anchor.y - p.webAnchor.y) < 10
+    ) {
+      continue;
+    }
+
     const ax = anchor.x - px;
     const ay = anchor.y - py;
     const ad = Math.hypot(ax, ay);
@@ -700,6 +751,94 @@ function tryAttachFromSwipeDirection(swipeDx, swipeDy, angleMarginDeg = HOOK_DET
     }
   }
 
+  return bestAnchor;
+}
+
+function updateActionPreviewFromSwipe(swipeDx, swipeDy) {
+  const p = state.player;
+  if (!p) return;
+
+  const preview = MOBILE.preview;
+  const { x: px, y: py } = getPlayerCenter();
+  const swipeLen = Math.hypot(swipeDx, swipeDy);
+  const nx = swipeLen > 0 ? swipeDx / swipeLen : p.facing;
+  const ny = swipeLen > 0 ? swipeDy / swipeLen : 0;
+
+  preview.active = true;
+
+  if (swipeLen < 16) {
+    preview.mode = "shot";
+    preview.targetX = px + (p.facing >= 0 ? 1 : -1) * 280;
+    preview.targetY = py;
+    preview.color = "#d7f0ff";
+    return;
+  }
+
+  if (p.webAttached) {
+    const hook = findSwipeHookTarget(swipeDx, swipeDy, HOOK_DETECTION_ANGLE_DEG, true);
+    if (hook) {
+      preview.mode = "retarget";
+      preview.targetX = hook.x;
+      preview.targetY = hook.y;
+      preview.color = "#7be8ff";
+      return;
+    }
+
+    preview.mode = "doublejump";
+    preview.targetX = px + nx * 220;
+    preview.targetY = py + ny * 220;
+    preview.color = "#ffd180";
+    return;
+  }
+
+  const enemy = getSwipeEnemyTarget(swipeDx, swipeDy);
+  if (enemy) {
+    const ex = enemy.x + enemy.w * 0.5;
+    const ey = enemy.y + enemy.h * 0.4;
+    const d = Math.hypot(ex - px, ey - py);
+    preview.mode = d > ENEMY_NEAR_RANGE ? "filin-kill" : "pull-finish";
+    preview.targetX = ex;
+    preview.targetY = ey;
+    preview.color = d > ENEMY_NEAR_RANGE ? "#ff9cab" : "#ff6d8a";
+    return;
+  }
+
+  const hook = findSwipeHookTarget(swipeDx, swipeDy, HOOK_DETECTION_ANGLE_DEG, false);
+  if (hook) {
+    preview.mode = "attach";
+    preview.targetX = hook.x;
+    preview.targetY = hook.y;
+    preview.color = "#8de8ff";
+    return;
+  }
+
+  if (ny < -0.6) {
+    preview.mode = "jump";
+    preview.targetX = px;
+    preview.targetY = py - 220;
+    preview.color = "#b8e986";
+    return;
+  }
+
+  if (ny > 0.6) {
+    preview.mode = "crawl";
+    preview.targetX = px + nx * 180;
+    preview.targetY = py + 80;
+    preview.color = "#f8c471";
+    return;
+  }
+
+  preview.mode = "neutral";
+  preview.targetX = px + nx * 180;
+  preview.targetY = py + ny * 180;
+  preview.color = "#d7f0ff";
+}
+
+function tryAttachFromSwipeDirection(swipeDx, swipeDy, angleMarginDeg = HOOK_DETECTION_ANGLE_DEG) {
+  const p = state.player;
+  if (!p || p.webAttached || p.webCd > 0 || p.stamina < 12) return false;
+
+  const bestAnchor = findSwipeHookTarget(swipeDx, swipeDy, angleMarginDeg, false);
   if (!bestAnchor) return false;
 
   launchMobilityWeb(bestAnchor.x, bestAnchor.y);
@@ -710,35 +849,12 @@ function tryRetargetWebFromSwipeDirection(swipeDx, swipeDy, angleMarginDeg = HOO
   const p = state.player;
   if (!p || !p.webAttached || !p.webAnchor || p.stamina < 8) return false;
 
-  const swipeMag = Math.hypot(swipeDx, swipeDy);
-  if (swipeMag < 18) return false;
+  const bestAnchor = findSwipeHookTarget(swipeDx, swipeDy, angleMarginDeg, true);
+  if (!bestAnchor) return false;
 
-  const sx = swipeDx / swipeMag;
-  const sy = swipeDy / swipeMag;
   const px = p.x + p.w * 0.5;
   const py = p.y + p.h * 0.35;
-  let bestAnchor = null;
-  let bestDistance = Number.POSITIVE_INFINITY;
-
-  for (const anchor of state.surfaces.anchors) {
-    if (Math.hypot(anchor.x - p.webAnchor.x, anchor.y - p.webAnchor.y) < 10) continue;
-
-    const ax = anchor.x - px;
-    const ay = anchor.y - py;
-    const ad = Math.hypot(ax, ay);
-    if (ad < 24 || ad > 420) continue;
-
-    const nx = ax / ad;
-    const ny = ay / ad;
-    const dot = clamp(sx * nx + sy * ny, -1, 1);
-    const angleDeg = (Math.acos(dot) * 180) / Math.PI;
-    if (angleDeg <= angleMarginDeg && ad < bestDistance) {
-      bestAnchor = anchor;
-      bestDistance = ad;
-    }
-  }
-
-  if (!bestAnchor) return false;
+  const bestDistance = Math.hypot(bestAnchor.x - px, bestAnchor.y - py);
 
   p.webAnchor = { x: bestAnchor.x, y: bestAnchor.y };
   p.webLen = clamp(bestDistance * 0.88, 50, 360);
@@ -1050,6 +1166,15 @@ function applyWebSwing(p, dt) {
     p.webLen = Math.min(420, p.webLen + 320 * dt);
   }
 
+  // Prevent easy climb above the hook unless there is enough lateral swing momentum.
+  const bodyY = p.y + p.h * 0.42;
+  const climbCapY = p.webAnchor.y - 6;
+  const hasSwingMomentum = Math.abs(p.vx) > 265;
+  if (bodyY < climbCapY && !hasSwingMomentum) {
+    p.y = climbCapY - p.h * 0.42;
+    if (p.vy < 0) p.vy = 0;
+  }
+
   p.stamina = Math.max(0, p.stamina - dt * 8.5);
   if (p.stamina <= 0) {
     p.webAttached = false;
@@ -1167,13 +1292,13 @@ function updatePlayer(dt) {
   }
 
   p.x = clamp(p.x, 0, state.world.width - p.w);
-  if (p.y > state.height + 180) {
+  if (p.y > state.world.floorY + 320) {
     applyPlayerDamage(18, "Chute dangereuse");
     respawnPlayer();
   }
 
-  if (p.y < state.world.ceilingY - 12) {
-    p.y = state.world.ceilingY - 12;
+  if (p.y < state.world.topY) {
+    p.y = state.world.topY;
     if (p.vy < 0) p.vy = 0;
   }
 
@@ -1525,6 +1650,10 @@ function updateCamera(dt) {
   const p = state.player;
   const target = p.x - state.width * 0.35;
   state.cameraX = lerp(state.cameraX, clamp(target, 0, state.world.width - state.width), clamp(dt * 4, 0, 1));
+
+  const maxCameraY = state.world.floorY - state.height;
+  const targetY = p.y - state.height * 0.48;
+  state.cameraY = lerp(state.cameraY, clamp(targetY, state.world.topY, maxCameraY), clamp(dt * 4.2, 0, 1));
 }
 
 function update(dt) {
@@ -1588,9 +1717,10 @@ function drawCityBackground() {
 
 function drawWorld() {
   const cam = state.cameraX;
+  const camY = state.cameraY;
 
   ctx.save();
-  ctx.translate(-cam, 0);
+  ctx.translate(-cam, -camY);
 
   ctx.fillStyle = "#0e2d49";
   for (const block of state.surfaces.blocks) {
@@ -1626,7 +1756,7 @@ function drawWorld() {
 
 function drawEnemy(enemy) {
   const x = enemy.x - state.cameraX;
-  const y = enemy.y;
+  const y = enemy.y - state.cameraY;
   const isRifle = enemy.type === "rifle" || enemy.type === "boss";
 
   const body = enemy.type === "boss" ? "#6d1529" : isRifle ? "#6a2430" : "#6c3128";
@@ -1677,13 +1807,13 @@ function drawEnemy(enemy) {
 function drawPlayer() {
   const p = state.player;
   const x = p.x - state.cameraX;
-  const y = p.y;
+  const y = p.y - state.cameraY;
 
   for (const t of p.trail) {
     const alpha = clamp(t.life / 0.25, 0, 1) * 0.45;
     ctx.fillStyle = `rgba(29, 168, 255, ${alpha})`;
     ctx.beginPath();
-    ctx.arc(t.x - state.cameraX, t.y, 9 * alpha + 2, 0, Math.PI * 2);
+    ctx.arc(t.x - state.cameraX, t.y - state.cameraY, 9 * alpha + 2, 0, Math.PI * 2);
     ctx.fill();
   }
 
@@ -1692,7 +1822,7 @@ function drawPlayer() {
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(x + p.w * 0.5, y + p.h * 0.35);
-    ctx.lineTo(p.webAnchor.x - state.cameraX, p.webAnchor.y);
+    ctx.lineTo(p.webAnchor.x - state.cameraX, p.webAnchor.y - state.cameraY);
     ctx.stroke();
   }
 
@@ -1724,32 +1854,61 @@ function drawPlayer() {
 function drawShots() {
   for (const shot of state.projectiles) {
     const x = shot.x - state.cameraX;
+    const y = shot.y - state.cameraY;
     ctx.beginPath();
     ctx.fillStyle = "#ff6788";
-    ctx.arc(x, shot.y, 4, 0, Math.PI * 2);
+    ctx.arc(x, y, 4, 0, Math.PI * 2);
     ctx.fill();
   }
 
   for (const bolt of state.webBolts) {
     const x = bolt.x - state.cameraX;
+    const y = bolt.y - state.cameraY;
     ctx.beginPath();
     ctx.fillStyle = "#d7f0ff";
-    ctx.arc(x, bolt.y, 3.5, 0, Math.PI * 2);
+    ctx.arc(x, y, 3.5, 0, Math.PI * 2);
     ctx.fill();
   }
 
   for (const spark of state.hitSparks) {
     const alpha = clamp(spark.life / 0.24, 0, 1);
     const x = spark.x - state.cameraX;
+    const y = spark.y - state.cameraY;
     ctx.strokeStyle = `rgba(255, 240, 204, ${alpha})`;
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(x - 8, spark.y);
-    ctx.lineTo(x + 8, spark.y);
-    ctx.moveTo(x, spark.y - 8);
-    ctx.lineTo(x, spark.y + 8);
+    ctx.moveTo(x - 8, y);
+    ctx.lineTo(x + 8, y);
+    ctx.moveTo(x, y - 8);
+    ctx.lineTo(x, y + 8);
     ctx.stroke();
   }
+}
+
+function drawActionPreviewLaser() {
+  if (!MOBILE.active || MOBILE.actionPointerId === null || !MOBILE.preview.active || !state.player) return;
+
+  const { x: px, y: py } = getPlayerCenter();
+  const sx = px - state.cameraX;
+  const sy = py - state.cameraY;
+  const tx = MOBILE.preview.targetX - state.cameraX;
+  const ty = MOBILE.preview.targetY - state.cameraY;
+
+  ctx.save();
+  ctx.strokeStyle = MOBILE.preview.color;
+  ctx.lineWidth = 3;
+  ctx.setLineDash([8, 6]);
+  ctx.beginPath();
+  ctx.moveTo(sx, sy);
+  ctx.lineTo(tx, ty);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.beginPath();
+  ctx.fillStyle = MOBILE.preview.color;
+  ctx.arc(tx, ty, 5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
 }
 
 function drawHud() {
@@ -1844,6 +2003,7 @@ function render() {
     drawEnemy(state.boss);
   }
 
+  drawActionPreviewLaser();
   drawPlayer();
   drawShots();
   drawObjectiveHints();
@@ -1906,6 +2066,8 @@ window.addEventListener("resize", () => {
   resizeCanvas();
   if (state.player) {
     state.player.y = Math.min(state.player.y, state.world.floorY - state.player.h - 1);
+    const maxCameraY = state.world.floorY - state.height;
+    state.cameraY = clamp(state.player.y - state.height * 0.48, state.world.topY, maxCameraY);
   }
   buildLevel();
 });
