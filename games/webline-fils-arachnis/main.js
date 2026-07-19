@@ -64,8 +64,6 @@ const MOBILE = {
   moveCenterY: 0,
   moveLastX: 0,
   moveLastY: 0,
-  moveStartY: 0,
-  moveJumpTriggered: false,
   actionBtnEl: null,
   actionStartY: 0,
   actionLastY: 0,
@@ -423,8 +421,6 @@ function ensureMobileHud() {
     MOBILE.moveCenterY = anchor.y;
     MOBILE.moveLastX = event.clientX;
     MOBILE.moveLastY = event.clientY;
-    MOBILE.moveStartY = event.clientY;
-    MOBILE.moveJumpTriggered = false;
     updateStickFromPoint(event.clientX, event.clientY);
     const rect = canvas.getBoundingClientRect();
     const localX = anchor.x - rect.left;
@@ -441,17 +437,12 @@ function ensureMobileHud() {
     event.preventDefault();
     MOBILE.moveLastX = event.clientX;
     MOBILE.moveLastY = event.clientY;
-    if (!MOBILE.moveJumpTriggered && event.clientY - MOBILE.moveStartY < -22) {
-      MOBILE.jumpQueued = true;
-      MOBILE.moveJumpTriggered = true;
-    }
     updateStickFromPoint(event.clientX, event.clientY);
   });
 
   const resetMove = (event) => {
     if (event.pointerId !== MOBILE.movePointerId) return;
     MOBILE.movePointerId = null;
-    MOBILE.moveJumpTriggered = false;
     updateStickFromPoint(MOBILE.moveLastX, MOBILE.moveLastY, true);
     stick.style.left = "auto";
     stick.style.top = "auto";
@@ -590,6 +581,37 @@ function triggerDodge() {
   p.vx = p.facing * 460;
 }
 
+function tryAutoSwingFromJumpInput() {
+  const p = state.player;
+  if (!p || p.webAttached || p.webCd > 0 || p.stamina < 12) return false;
+
+  const px = p.x + p.w * 0.5;
+  const py = p.y + p.h * 0.35;
+  let bestAnchor = null;
+  let bestScore = Number.POSITIVE_INFINITY;
+
+  for (const anchor of state.surfaces.anchors) {
+    if (anchor.y >= py - 20) continue;
+
+    const dx = anchor.x - px;
+    const dy = anchor.y - py;
+    const d = Math.hypot(dx, dy);
+    if (d > 420) continue;
+
+    // Favor overhead anchors that are not too far on the sides.
+    const score = d + Math.abs(dx) * 0.35;
+    if (score < bestScore) {
+      bestScore = score;
+      bestAnchor = anchor;
+    }
+  }
+
+  if (!bestAnchor) return false;
+
+  launchMobilityWeb(bestAnchor.x, bestAnchor.y);
+  return p.webAttached;
+}
+
 function getNearestEnemy(maxRange) {
   const p = state.player;
   if (!p) return null;
@@ -626,13 +648,10 @@ function fireMobileShot() {
   const p = state.player;
   if (!p) return;
 
-  const target = getNearestEnemy(640);
-  if (target) {
-    shootCaptureWeb(target.x + target.w * 0.5, target.y + target.h * 0.45);
-    return;
-  }
-
-  shootCaptureWeb(p.x + p.facing * 320, p.y + p.h * 0.45);
+  const shotDir = p.facing >= 0 ? 1 : -1;
+  const targetX = p.x + p.w * 0.5 + shotDir * 420;
+  const targetY = p.y + p.h * 0.45;
+  shootCaptureWeb(targetX, targetY);
 }
 
 function updateInput(dt) {
@@ -663,7 +682,9 @@ function updateInput(dt) {
   const p = state.player;
   p.jumpBuffer -= dt;
   if (state.keys.jump) {
-    p.jumpBuffer = 0.16;
+    if (!tryAutoSwingFromJumpInput()) {
+      p.jumpBuffer = 0.16;
+    }
   }
   state.keys.jump = false;
 }
@@ -967,12 +988,8 @@ function updateWebBolts(dt) {
       if (enemy.hp <= 0) continue;
       if (bolt.x >= enemy.x && bolt.x <= enemy.x + enemy.w && bolt.y >= enemy.y && bolt.y <= enemy.y + enemy.h) {
         bolt.life = 0;
-        enemy.webStacks = clamp(enemy.webStacks + 1, 0, 3);
-        enemy.stuckTime = Math.max(enemy.stuckTime, 0.45 + enemy.webStacks * 0.3);
-        enemy.vx *= 0.4;
-        if (enemy.webStacks >= 3) {
-          enemy.stuckTime = Math.max(enemy.stuckTime, 2.2);
-        }
+        const pushDir = bolt.vx >= 0 ? 1 : -1;
+        hitEnemy(enemy, 26, pushDir);
         state.hitSparks.push({ x: bolt.x, y: bolt.y, life: 0.24 });
       }
     }
@@ -1184,11 +1201,11 @@ function updateEntities(dt) {
   }
   updateBoss(dt);
 
-  state.enemies = state.enemies.filter((e) => e.hp > 0);
-
   updateMeleeHits();
   updateWebBolts(dt);
   updateProjectiles(dt);
+
+  state.enemies = state.enemies.filter((e) => e.hp > 0);
 
   for (const spark of state.hitSparks) {
     spark.life -= dt;
