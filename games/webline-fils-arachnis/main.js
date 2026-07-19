@@ -56,9 +56,21 @@ const state = {
 
 const MOBILE = {
   active: false,
-  stickPointerId: null,
+  movePointerId: null,
+  actionPointerId: null,
   stickX: 0,
   stickY: 0,
+  moveCenterX: 0,
+  moveCenterY: 0,
+  actionX: 0,
+  actionY: 0,
+  actionStartX: 0,
+  actionStartY: 0,
+  actionTapCount: 0,
+  actionTapTimer: 0,
+  actionHold: 0,
+  actionAimWorldX: 0,
+  actionAimWorldY: 0,
   jumpQueued: false,
   meleeQueued: false,
   dodgeQueued: false,
@@ -353,35 +365,31 @@ function ensureMobileHud() {
   const hud = document.createElement("div");
   hud.className = "mobileHud";
   hud.innerHTML = `
-    <div class="mobileCluster">
+    <div class="mobileCluster left" id="actionZone">
+      <span class="zoneLabel">Actions</span>
+    </div>
+    <div class="mobileCluster right" id="moveZone">
+      <span class="zoneLabel">Mouvement</span>
       <div class="stick" id="stick">
         <div class="stickKnob" id="stickKnob"></div>
       </div>
-    </div>
-    <div class="mobileCluster right">
-      <button class="touchBtn" id="btnJump" type="button">Saut</button>
-      <button class="touchBtn" id="btnDodge" type="button">Dash</button>
-      <button class="touchBtn" id="btnMelee" type="button">Hit</button>
-      <button class="touchBtn" id="btnWeb" type="button">Toile</button>
-      <button class="touchBtn" id="btnTrap" type="button">Piege</button>
     </div>
   `;
 
   document.querySelector(".stageWrap").appendChild(hud);
 
+  const moveZone = document.getElementById("moveZone");
+  const actionZone = document.getElementById("actionZone");
   const stick = document.getElementById("stick");
   const stickKnob = document.getElementById("stickKnob");
 
   const updateStick = (event, reset = false) => {
-    const rect = stick.getBoundingClientRect();
-    const cx = rect.left + rect.width * 0.5;
-    const cy = rect.top + rect.height * 0.5;
     let dx = 0;
     let dy = 0;
 
     if (!reset) {
-      dx = event.clientX - cx;
-      dy = event.clientY - cy;
+      dx = event.clientX - MOBILE.moveCenterX;
+      dy = event.clientY - MOBILE.moveCenterY;
       const mag = Math.hypot(dx, dy);
       const lim = 34;
       if (mag > lim) {
@@ -396,49 +404,95 @@ function ensureMobileHud() {
     stickKnob.style.top = `${34 + dy}px`;
   };
 
-  stick.addEventListener("pointerdown", (event) => {
-    MOBILE.stickPointerId = event.pointerId;
-    stick.setPointerCapture(event.pointerId);
+  moveZone.addEventListener("pointerdown", (event) => {
+    if (MOBILE.movePointerId !== null) return;
+    MOBILE.movePointerId = event.pointerId;
+    MOBILE.moveCenterX = event.clientX;
+    MOBILE.moveCenterY = event.clientY;
+    const rect = canvas.getBoundingClientRect();
+    const localX = MOBILE.moveCenterX - rect.left;
+    const localY = MOBILE.moveCenterY - rect.top;
+    stick.style.left = `${localX - 56}px`;
+    stick.style.top = `${localY - 56}px`;
+    stick.style.right = "auto";
+    stick.style.bottom = "auto";
+    moveZone.setPointerCapture(event.pointerId);
     updateStick(event);
   });
 
-  stick.addEventListener("pointermove", (event) => {
-    if (event.pointerId !== MOBILE.stickPointerId) return;
+  moveZone.addEventListener("pointermove", (event) => {
+    if (event.pointerId !== MOBILE.movePointerId) return;
     updateStick(event);
   });
 
-  const resetStick = (event) => {
-    if (event.pointerId !== MOBILE.stickPointerId) return;
-    MOBILE.stickPointerId = null;
+  const resetMove = (event) => {
+    if (event.pointerId !== MOBILE.movePointerId) return;
+    const dy = event.clientY - MOBILE.moveCenterY;
+    if (dy < -26) {
+      MOBILE.jumpQueued = true;
+    }
+    MOBILE.movePointerId = null;
     updateStick(event, true);
+    stick.style.left = "auto";
+    stick.style.top = "auto";
+    stick.style.right = `calc(22px + env(safe-area-inset-right))`;
+    stick.style.bottom = `calc(18px + env(safe-area-inset-bottom))`;
   };
 
-  stick.addEventListener("pointerup", resetStick);
-  stick.addEventListener("pointercancel", resetStick);
+  moveZone.addEventListener("pointerup", resetMove);
+  moveZone.addEventListener("pointercancel", resetMove);
 
-  const makeTap = (id, cb) => {
-    const el = document.getElementById(id);
-    el.addEventListener("pointerdown", (event) => {
-      event.preventDefault();
-      cb();
-    });
+  actionZone.addEventListener("pointerdown", (event) => {
+    if (MOBILE.actionPointerId !== null) return;
+    MOBILE.actionPointerId = event.pointerId;
+    actionZone.setPointerCapture(event.pointerId);
+    MOBILE.actionStartX = event.clientX;
+    MOBILE.actionStartY = event.clientY;
+    MOBILE.actionX = event.clientX;
+    MOBILE.actionY = event.clientY;
+    MOBILE.actionHold = 0;
+    const rect = canvas.getBoundingClientRect();
+    MOBILE.actionAimWorldX = MOBILE.actionX - rect.left + state.cameraX;
+    MOBILE.actionAimWorldY = MOBILE.actionY - rect.top;
+  });
+
+  actionZone.addEventListener("pointermove", (event) => {
+    if (event.pointerId !== MOBILE.actionPointerId) return;
+    MOBILE.actionX = event.clientX;
+    MOBILE.actionY = event.clientY;
+    const rect = canvas.getBoundingClientRect();
+    MOBILE.actionAimWorldX = MOBILE.actionX - rect.left + state.cameraX;
+    MOBILE.actionAimWorldY = MOBILE.actionY - rect.top;
+  });
+
+  const releaseAction = (event) => {
+    if (event.pointerId !== MOBILE.actionPointerId) return;
+    const rect = canvas.getBoundingClientRect();
+    MOBILE.actionAimWorldX = MOBILE.actionX - rect.left + state.cameraX;
+    MOBILE.actionAimWorldY = MOBILE.actionY - rect.top;
+    const dx = MOBILE.actionX - MOBILE.actionStartX;
+    const dy = MOBILE.actionY - MOBILE.actionStartY;
+    const drag = Math.hypot(dx, dy);
+
+    if (drag > 34) {
+      if (Math.abs(dx) > Math.abs(dy)) {
+        MOBILE.webTrapQueued = true;
+      } else if (dy < -14) {
+        MOBILE.webMobQueued = true;
+      } else {
+        MOBILE.jumpQueued = true;
+      }
+    } else {
+      MOBILE.actionTapCount += 1;
+      MOBILE.actionTapTimer = 0.26;
+    }
+
+    MOBILE.actionPointerId = null;
+    MOBILE.actionHold = 0;
   };
 
-  makeTap("btnJump", () => {
-    MOBILE.jumpQueued = true;
-  });
-  makeTap("btnDodge", () => {
-    MOBILE.dodgeQueued = true;
-  });
-  makeTap("btnMelee", () => {
-    MOBILE.meleeQueued = true;
-  });
-  makeTap("btnWeb", () => {
-    MOBILE.webMobQueued = true;
-  });
-  makeTap("btnTrap", () => {
-    MOBILE.webTrapQueued = true;
-  });
+  actionZone.addEventListener("pointerup", releaseAction);
+  actionZone.addEventListener("pointercancel", releaseAction);
 
   canvas.addEventListener("pointerdown", (event) => {
     pointerEventToWorld(event);
@@ -534,6 +588,27 @@ function updateInput(dt) {
     state.keys.right = MOBILE.stickX > 0.22;
     state.keys.up = MOBILE.stickY < -0.35;
 
+    if (MOBILE.actionPointerId !== null) {
+      MOBILE.actionHold += dt;
+      if (MOBILE.actionHold > 0.22) {
+        const rect = canvas.getBoundingClientRect();
+        state.pointer.worldX = MOBILE.actionX - rect.left + state.cameraX;
+        state.pointer.worldY = MOBILE.actionY - rect.top;
+      }
+    }
+
+    if (MOBILE.actionTapTimer > 0) {
+      MOBILE.actionTapTimer -= dt;
+      if (MOBILE.actionTapTimer <= 0) {
+        if (MOBILE.actionTapCount >= 2) {
+          MOBILE.dodgeQueued = true;
+        } else if (MOBILE.actionTapCount === 1) {
+          MOBILE.meleeQueued = true;
+        }
+        MOBILE.actionTapCount = 0;
+      }
+    }
+
     if (MOBILE.jumpQueued) {
       state.keys.jump = true;
       MOBILE.jumpQueued = false;
@@ -547,13 +622,14 @@ function updateInput(dt) {
       MOBILE.dodgeQueued = false;
     }
     if (MOBILE.webMobQueued) {
-      const targetX = state.player.x + state.player.facing * 170;
-      launchMobilityWeb(targetX, state.world.ceilingY + 24);
+      const targetX = MOBILE.actionAimWorldX || state.player.x + state.player.facing * 170;
+      const targetY = MOBILE.actionAimWorldY || state.world.ceilingY + 24;
+      launchMobilityWeb(targetX, targetY);
       MOBILE.webMobQueued = false;
     }
     if (MOBILE.webTrapQueued) {
-      const targetX = state.player.x + state.player.facing * 260;
-      const targetY = state.player.y;
+      const targetX = MOBILE.actionAimWorldX || state.player.x + state.player.facing * 260;
+      const targetY = MOBILE.actionAimWorldY || state.player.y;
       shootCaptureWeb(targetX, targetY);
       MOBILE.webTrapQueued = false;
     }

@@ -142,42 +142,59 @@ body {
 
 .mobileHud {
   position: absolute;
-  inset: auto 0 calc(10px + env(safe-area-inset-bottom)) 0;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  inset: 0;
+  display: flex;
   pointer-events: none;
-  padding: 0 12px;
+  z-index: 5;
 }
 
 .mobileCluster {
-  display: flex;
-  gap: 10px;
-  align-items: flex-end;
+  pointer-events: auto;
+  position: relative;
+  width: 50%;
+  height: 100%;
+}
+
+.mobileCluster.left {
+  background: linear-gradient(90deg, #0a1a2e30, transparent);
 }
 
 .mobileCluster.right {
-  justify-content: flex-end;
+  background: linear-gradient(270deg, #11274745, transparent);
 }
 
-.touchBtn {
-  pointer-events: auto;
-  width: 58px;
-  height: 58px;
-  border-radius: 50%;
-  border: 1px solid #9fd4ff7b;
-  background: #11345cbf;
-  color: #e4f4ff;
+.zoneLabel {
+  position: absolute;
+  top: 12px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
   font-weight: 700;
+  letter-spacing: 0.03em;
+  color: #d8eeff;
+  border: 1px solid #a6d7ff3f;
+  background: #07192ba8;
+}
+
+.mobileCluster.left .zoneLabel {
+  left: 12px;
+}
+
+.mobileCluster.right .zoneLabel {
+  right: 12px;
 }
 
 .stick {
-  pointer-events: auto;
+  pointer-events: none;
   width: 112px;
   height: 112px;
   border-radius: 50%;
   border: 1px solid #9fd4ff57;
   background: #081a2ba8;
   position: relative;
+  position: absolute;
+  right: calc(22px + env(safe-area-inset-right));
+  bottom: calc(18px + env(safe-area-inset-bottom));
 }
 
 .stickKnob {
