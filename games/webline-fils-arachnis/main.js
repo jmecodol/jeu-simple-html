@@ -660,7 +660,13 @@ function updateInput(dt) {
   if (MOBILE.active) {
     state.keys.left = MOBILE.stickX < -0.4;
     state.keys.right = MOBILE.stickX > 0.4;
-    state.keys.up = false;
+    if (state.player.webAttached) {
+      state.keys.up = MOBILE.stickY < -0.35;
+      state.keys.down = MOBILE.stickY > 0.35;
+    } else {
+      state.keys.up = false;
+      state.keys.down = false;
+    }
 
     if (MOBILE.jumpQueued) {
       state.keys.jump = true;
@@ -780,6 +786,20 @@ function applyWebSwing(p, dt) {
     }
   }
 
+  // While attached, left pad can steer in full 2D and reel in/out the cable.
+  const inputX = (state.keys.right ? 1 : 0) - (state.keys.left ? 1 : 0);
+  const inputY = (state.keys.down ? 1 : 0) - (state.keys.up ? 1 : 0);
+  if (inputX !== 0 || inputY !== 0) {
+    p.vx += inputX * 920 * dt;
+    p.vy += inputY * 820 * dt;
+  }
+
+  if (state.keys.up) {
+    p.webLen = Math.max(52, p.webLen - 185 * dt);
+  } else if (state.keys.down) {
+    p.webLen = Math.min(390, p.webLen + 185 * dt);
+  }
+
   p.stamina = Math.max(0, p.stamina - dt * 8.5);
   if (p.stamina <= 0) {
     p.webAttached = false;
@@ -817,7 +837,7 @@ function updatePlayer(dt) {
 
   p.vx = clamp(p.vx, -maxSpeed, maxSpeed);
 
-  const wantsCeiling = state.keys.up && p.stamina > 4 && p.y < state.world.ceilingY + 90;
+  const wantsCeiling = !p.webAttached && state.keys.up && p.stamina > 4 && p.y < state.world.ceilingY + 90;
   if (wantsCeiling) {
     p.clingCeiling = 0.18;
   } else {
@@ -850,7 +870,7 @@ function updatePlayer(dt) {
         p.vx = -p.wallDir * 250;
       }
 
-        p.vy = JUMP_VELOCITY;
+      p.vy = JUMP_VELOCITY;
       if (!canGroundJump) {
         p.jumpsLeft = Math.max(0, p.jumpsLeft - 1);
       }
