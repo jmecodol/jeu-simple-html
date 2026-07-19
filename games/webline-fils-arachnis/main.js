@@ -57,26 +57,24 @@ const state = {
 const MOBILE = {
   active: false,
   movePointerId: null,
-  actionPointerId: null,
   stickX: 0,
   stickY: 0,
   moveCenterX: 0,
   moveCenterY: 0,
-  actionX: 0,
-  actionY: 0,
-  actionStartX: 0,
-  actionStartY: 0,
-  actionTapCount: 0,
-  actionTapTimer: 0,
-  actionHold: 0,
-  actionAimWorldX: 0,
-  actionAimWorldY: 0,
+  moveLastX: 0,
+  moveLastY: 0,
+  actionBtnEl: null,
+  actionHintEl: null,
+  actionQueued: false,
+  actionMode: "ATTAQUE",
   jumpQueued: false,
   meleeQueued: false,
   dodgeQueued: false,
   webMobQueued: false,
   webTrapQueued: false,
 };
+
+const INFINITE_LIVES = true;
 
 function clamp(v, min, max) {
   return Math.max(min, Math.min(max, v));
@@ -365,64 +363,86 @@ function ensureMobileHud() {
   const hud = document.createElement("div");
   hud.className = "mobileHud";
   hud.innerHTML = `
-    <div class="mobileCluster left" id="actionZone">
-      <span class="zoneLabel">Actions</span>
-    </div>
-    <div class="mobileCluster right" id="moveZone">
-      <span class="zoneLabel">Mouvement</span>
+    <div class="mobileCluster left" id="moveZone">
+      <span class="zoneLabel">Commandes</span>
       <div class="stick" id="stick">
         <div class="stickKnob" id="stickKnob"></div>
       </div>
+    </div>
+    <div class="mobileCluster right" id="actionZone">
+      <span class="zoneLabel">Action</span>
+      <div class="actionRing">
+        <button class="actionBtn" id="actionBtn" type="button">ATK</button>
+      </div>
+      <span class="actionHint" id="actionHint">Action contextuelle</span>
     </div>
   `;
 
   document.querySelector(".stageWrap").appendChild(hud);
 
   const moveZone = document.getElementById("moveZone");
-  const actionZone = document.getElementById("actionZone");
+  const actionBtn = document.getElementById("actionBtn");
+  const actionHint = document.getElementById("actionHint");
   const stick = document.getElementById("stick");
   const stickKnob = document.getElementById("stickKnob");
+  MOBILE.actionBtnEl = actionBtn;
+  MOBILE.actionHintEl = actionHint;
 
-  const updateStick = (event, reset = false) => {
+  const getStickAnchor = () => {
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: rect.left + 22 + 68,
+      y: rect.top + rect.height - 18 - 68,
+    };
+  };
+
+  const updateStickFromPoint = (clientX, clientY, reset = false) => {
     let dx = 0;
     let dy = 0;
 
     if (!reset) {
-      dx = event.clientX - MOBILE.moveCenterX;
-      dy = event.clientY - MOBILE.moveCenterY;
+      dx = clientX - MOBILE.moveCenterX;
+      dy = clientY - MOBILE.moveCenterY;
       const mag = Math.hypot(dx, dy);
-      const lim = 34;
+      const lim = 46;
       if (mag > lim) {
         dx = (dx / mag) * lim;
         dy = (dy / mag) * lim;
       }
     }
 
-    MOBILE.stickX = dx / 34;
-    MOBILE.stickY = dy / 34;
-    stickKnob.style.left = `${34 + dx}px`;
-    stickKnob.style.top = `${34 + dy}px`;
+    MOBILE.stickX = dx / 46;
+    MOBILE.stickY = dy / 46;
+    stickKnob.style.left = `${40 + dx}px`;
+    stickKnob.style.top = `${40 + dy}px`;
   };
 
   moveZone.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
     if (MOBILE.movePointerId !== null) return;
     MOBILE.movePointerId = event.pointerId;
-    MOBILE.moveCenterX = event.clientX;
-    MOBILE.moveCenterY = event.clientY;
+    const anchor = getStickAnchor();
+    MOBILE.moveCenterX = anchor.x;
+    MOBILE.moveCenterY = anchor.y;
+    MOBILE.moveLastX = event.clientX;
+    MOBILE.moveLastY = event.clientY;
+    updateStickFromPoint(event.clientX, event.clientY);
     const rect = canvas.getBoundingClientRect();
-    const localX = MOBILE.moveCenterX - rect.left;
-    const localY = MOBILE.moveCenterY - rect.top;
-    stick.style.left = `${localX - 56}px`;
-    stick.style.top = `${localY - 56}px`;
+    const localX = anchor.x - rect.left;
+    const localY = anchor.y - rect.top;
+    stick.style.left = `${localX - 68}px`;
+    stick.style.top = `${localY - 68}px`;
     stick.style.right = "auto";
     stick.style.bottom = "auto";
     moveZone.setPointerCapture(event.pointerId);
-    updateStick(event);
   });
 
   moveZone.addEventListener("pointermove", (event) => {
     if (event.pointerId !== MOBILE.movePointerId) return;
-    updateStick(event);
+    event.preventDefault();
+    MOBILE.moveLastX = event.clientX;
+    MOBILE.moveLastY = event.clientY;
+    updateStickFromPoint(event.clientX, event.clientY);
   });
 
   const resetMove = (event) => {
@@ -432,67 +452,26 @@ function ensureMobileHud() {
       MOBILE.jumpQueued = true;
     }
     MOBILE.movePointerId = null;
-    updateStick(event, true);
+    updateStickFromPoint(MOBILE.moveLastX, MOBILE.moveLastY, true);
     stick.style.left = "auto";
     stick.style.top = "auto";
-    stick.style.right = `calc(22px + env(safe-area-inset-right))`;
+    stick.style.right = "auto";
+    stick.style.left = `calc(22px + env(safe-area-inset-left))`;
     stick.style.bottom = `calc(18px + env(safe-area-inset-bottom))`;
   };
 
   moveZone.addEventListener("pointerup", resetMove);
   moveZone.addEventListener("pointercancel", resetMove);
-
-  actionZone.addEventListener("pointerdown", (event) => {
-    if (MOBILE.actionPointerId !== null) return;
-    MOBILE.actionPointerId = event.pointerId;
-    actionZone.setPointerCapture(event.pointerId);
-    MOBILE.actionStartX = event.clientX;
-    MOBILE.actionStartY = event.clientY;
-    MOBILE.actionX = event.clientX;
-    MOBILE.actionY = event.clientY;
-    MOBILE.actionHold = 0;
-    const rect = canvas.getBoundingClientRect();
-    MOBILE.actionAimWorldX = MOBILE.actionX - rect.left + state.cameraX;
-    MOBILE.actionAimWorldY = MOBILE.actionY - rect.top;
-  });
-
-  actionZone.addEventListener("pointermove", (event) => {
-    if (event.pointerId !== MOBILE.actionPointerId) return;
-    MOBILE.actionX = event.clientX;
-    MOBILE.actionY = event.clientY;
-    const rect = canvas.getBoundingClientRect();
-    MOBILE.actionAimWorldX = MOBILE.actionX - rect.left + state.cameraX;
-    MOBILE.actionAimWorldY = MOBILE.actionY - rect.top;
-  });
-
-  const releaseAction = (event) => {
-    if (event.pointerId !== MOBILE.actionPointerId) return;
-    const rect = canvas.getBoundingClientRect();
-    MOBILE.actionAimWorldX = MOBILE.actionX - rect.left + state.cameraX;
-    MOBILE.actionAimWorldY = MOBILE.actionY - rect.top;
-    const dx = MOBILE.actionX - MOBILE.actionStartX;
-    const dy = MOBILE.actionY - MOBILE.actionStartY;
-    const drag = Math.hypot(dx, dy);
-
-    if (drag > 34) {
-      if (Math.abs(dx) > Math.abs(dy)) {
-        MOBILE.webTrapQueued = true;
-      } else if (dy < -14) {
-        MOBILE.webMobQueued = true;
-      } else {
-        MOBILE.jumpQueued = true;
-      }
-    } else {
-      MOBILE.actionTapCount += 1;
-      MOBILE.actionTapTimer = 0.26;
+  moveZone.addEventListener("pointerleave", (event) => {
+    if (event.pointerId === MOBILE.movePointerId) {
+      resetMove(event);
     }
+  });
 
-    MOBILE.actionPointerId = null;
-    MOBILE.actionHold = 0;
-  };
-
-  actionZone.addEventListener("pointerup", releaseAction);
-  actionZone.addEventListener("pointercancel", releaseAction);
+  actionBtn.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    MOBILE.actionQueued = true;
+  });
 
   canvas.addEventListener("pointerdown", (event) => {
     pointerEventToWorld(event);
@@ -580,6 +559,123 @@ function triggerDodge() {
   p.vx = p.facing * 460;
 }
 
+function getNearestEnemy(maxRange) {
+  const p = state.player;
+  if (!p) return null;
+
+  const px = p.x + p.w * 0.5;
+  const py = p.y + p.h * 0.45;
+  let best = null;
+  let bestDist = maxRange;
+
+  for (const enemy of state.enemies) {
+    if (enemy.hp <= 0) continue;
+    const ex = enemy.x + enemy.w * 0.5;
+    const ey = enemy.y + enemy.h * 0.4;
+    const d = dist(px, py, ex, ey);
+    if (d < bestDist) {
+      bestDist = d;
+      best = enemy;
+    }
+  }
+
+  if (state.boss && state.boss.hp > 0) {
+    const ex = state.boss.x + state.boss.w * 0.5;
+    const ey = state.boss.y + state.boss.h * 0.4;
+    const d = dist(px, py, ex, ey);
+    if (d < bestDist) {
+      best = state.boss;
+    }
+  }
+
+  return best;
+}
+
+function getContextAction() {
+  const p = state.player;
+  if (!p) return "ATTAQUE";
+
+  if (p.webAttached) {
+    return "LACHER";
+  }
+
+  const closeEnemy = getNearestEnemy(72);
+  if (closeEnemy) {
+    return "ATTAQUE";
+  }
+
+  const webEnemy = getNearestEnemy(420);
+  if (webEnemy && p.stamina >= 16 && p.trapCd <= 0) {
+    return "CABLE";
+  }
+
+  if (p.stamina >= 12 && p.webCd <= 0) {
+    return "SWING";
+  }
+
+  return "SAUT";
+}
+
+function runContextAction() {
+  const p = state.player;
+  if (!p) return;
+  const mode = getContextAction();
+
+  if (mode === "LACHER") {
+    p.webAttached = false;
+    p.webAnchor = null;
+    return;
+  }
+
+  if (mode === "ATTAQUE") {
+    triggerMelee();
+    return;
+  }
+
+  if (mode === "CABLE") {
+    const target = getNearestEnemy(500);
+    if (!target) return;
+    const tx = target.x + target.w * 0.5;
+    const ty = target.y + target.h * 0.45;
+    shootCaptureWeb(tx, ty);
+    return;
+  }
+
+  if (mode === "SWING") {
+    const targetX = p.x + p.facing * 190;
+    const targetY = Math.max(state.world.ceilingY + 10, p.y - 130);
+    launchMobilityWeb(targetX, targetY);
+    return;
+  }
+
+  MOBILE.jumpQueued = true;
+}
+
+function updateActionButtonUi() {
+  if (!MOBILE.actionBtnEl || !MOBILE.actionHintEl) return;
+  const mode = getContextAction();
+  MOBILE.actionMode = mode;
+
+  const textMap = {
+    ATTAQUE: "ATK",
+    CABLE: "WEB",
+    SWING: "SWG",
+    SAUT: "UP",
+    LACHER: "OFF",
+  };
+
+  const hintMap = {
+    ATTAQUE: "Attaque rapprochee",
+    CABLE: "Cable de capture",
+    SWING: "Toile de mouvement",
+    SAUT: "Saut instantane",
+    LACHER: "Lacher la toile",
+  };
+
+  MOBILE.actionBtnEl.textContent = textMap[mode] || "ACT";
+  MOBILE.actionHintEl.textContent = hintMap[mode] || "Action contextuelle";
+}
+
 function updateInput(dt) {
   if (!state.player) return;
 
@@ -588,25 +684,11 @@ function updateInput(dt) {
     state.keys.right = MOBILE.stickX > 0.22;
     state.keys.up = MOBILE.stickY < -0.35;
 
-    if (MOBILE.actionPointerId !== null) {
-      MOBILE.actionHold += dt;
-      if (MOBILE.actionHold > 0.22) {
-        const rect = canvas.getBoundingClientRect();
-        state.pointer.worldX = MOBILE.actionX - rect.left + state.cameraX;
-        state.pointer.worldY = MOBILE.actionY - rect.top;
-      }
-    }
+    updateActionButtonUi();
 
-    if (MOBILE.actionTapTimer > 0) {
-      MOBILE.actionTapTimer -= dt;
-      if (MOBILE.actionTapTimer <= 0) {
-        if (MOBILE.actionTapCount >= 2) {
-          MOBILE.dodgeQueued = true;
-        } else if (MOBILE.actionTapCount === 1) {
-          MOBILE.meleeQueued = true;
-        }
-        MOBILE.actionTapCount = 0;
-      }
+    if (MOBILE.actionQueued) {
+      runContextAction();
+      MOBILE.actionQueued = false;
     }
 
     if (MOBILE.jumpQueued) {
@@ -620,18 +702,6 @@ function updateInput(dt) {
     if (MOBILE.dodgeQueued) {
       triggerDodge();
       MOBILE.dodgeQueued = false;
-    }
-    if (MOBILE.webMobQueued) {
-      const targetX = MOBILE.actionAimWorldX || state.player.x + state.player.facing * 170;
-      const targetY = MOBILE.actionAimWorldY || state.world.ceilingY + 24;
-      launchMobilityWeb(targetX, targetY);
-      MOBILE.webMobQueued = false;
-    }
-    if (MOBILE.webTrapQueued) {
-      const targetX = MOBILE.actionAimWorldX || state.player.x + state.player.facing * 260;
-      const targetY = MOBILE.actionAimWorldY || state.player.y;
-      shootCaptureWeb(targetX, targetY);
-      MOBILE.webTrapQueued = false;
     }
   }
 
@@ -870,6 +940,14 @@ function respawnPlayer() {
 function applyPlayerDamage(amount, source) {
   const p = state.player;
   if (!p || p.invuln > 0 || state.victory || state.gameOver) return;
+
+  if (INFINITE_LIVES) {
+    p.invuln = 0.2;
+    if (source) {
+      setMessage(`${source} ignore (vies infinies)`);
+    }
+    return;
+  }
 
   p.health = Math.max(0, p.health - amount);
   p.invuln = 0.55;
@@ -1551,5 +1629,6 @@ window.addEventListener("resize", () => {
 resizeCanvas();
 ensureMobileHud();
 resetGame(120);
+state.running = true;
 setMessage("Demarre la mission.");
 requestAnimationFrame(frame);

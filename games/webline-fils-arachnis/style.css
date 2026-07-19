@@ -151,15 +151,17 @@ body {
 .mobileCluster {
   pointer-events: auto;
   position: relative;
-  width: 50%;
   height: 100%;
+  touch-action: none;
 }
 
 .mobileCluster.left {
+  width: 66.6667%;
   background: linear-gradient(90deg, #0a1a2e30, transparent);
 }
 
 .mobileCluster.right {
+  width: 33.3333%;
   background: linear-gradient(270deg, #11274745, transparent);
 }
 
@@ -186,25 +188,70 @@ body {
 
 .stick {
   pointer-events: none;
-  width: 112px;
-  height: 112px;
+  width: 136px;
+  height: 136px;
   border-radius: 50%;
   border: 1px solid #9fd4ff57;
   background: #081a2ba8;
   position: relative;
   position: absolute;
-  right: calc(22px + env(safe-area-inset-right));
+  left: calc(22px + env(safe-area-inset-left));
   bottom: calc(18px + env(safe-area-inset-bottom));
 }
 
 .stickKnob {
-  width: 44px;
-  height: 44px;
+  width: 56px;
+  height: 56px;
   border-radius: 50%;
   background: #78c6ffcc;
   position: absolute;
-  left: 34px;
-  top: 34px;
+  left: 40px;
+  top: 40px;
+}
+
+.actionRing {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 132px;
+  height: 132px;
+  border-radius: 50%;
+  border: 2px solid #9bcfff6b;
+  background: radial-gradient(circle at 30% 30%, #1f3d5aa3, #07192cab 70%);
+  display: grid;
+  place-items: center;
+  box-shadow: 0 0 30px #0f426d55;
+}
+
+.actionBtn {
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  border: 1px solid #ffd8e166;
+  background: radial-gradient(circle at 28% 24%, #ff5f83, #aa1f43 72%);
+  color: #fff7fb;
+  font-weight: 800;
+  font-size: 0.9rem;
+  letter-spacing: 0.03em;
+}
+
+.actionBtn:active {
+  transform: scale(0.95);
+}
+
+.actionHint {
+  position: absolute;
+  left: 50%;
+  top: calc(50% + 82px);
+  transform: translateX(-50%);
+  font-size: 0.72rem;
+  padding: 4px 8px;
+  border-radius: 999px;
+  color: #d8edff;
+  background: #081728c4;
+  border: 1px solid #9fcfff40;
+  white-space: nowrap;
 }
 
 @media (hover: hover) and (pointer: fine) {
