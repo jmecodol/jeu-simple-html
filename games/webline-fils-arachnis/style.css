@@ -156,34 +156,13 @@ body {
 }
 
 .mobileCluster.left {
-  width: 66.6667%;
+  width: 74%;
   background: linear-gradient(90deg, #0a1a2e30, transparent);
 }
 
 .mobileCluster.right {
-  width: 33.3333%;
+  width: 26%;
   background: linear-gradient(270deg, #11274745, transparent);
-}
-
-.zoneLabel {
-  position: absolute;
-  top: 12px;
-  padding: 6px 10px;
-  border-radius: 999px;
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.03em;
-  color: #d8eeff;
-  border: 1px solid #a6d7ff3f;
-  background: #07192ba8;
-}
-
-.mobileCluster.left .zoneLabel {
-  left: 12px;
-}
-
-.mobileCluster.right .zoneLabel {
-  right: 12px;
 }
 
 .stick {
@@ -238,20 +217,6 @@ body {
 
 .actionBtn:active {
   transform: scale(0.95);
-}
-
-.actionHint {
-  position: absolute;
-  left: 50%;
-  top: calc(50% + 82px);
-  transform: translateX(-50%);
-  font-size: 0.72rem;
-  padding: 4px 8px;
-  border-radius: 999px;
-  color: #d8edff;
-  background: #081728c4;
-  border: 1px solid #9fcfff40;
-  white-space: nowrap;
 }
 
 @media (hover: hover) and (pointer: fine) {

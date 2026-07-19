@@ -64,15 +64,18 @@ const MOBILE = {
   moveCenterY: 0,
   moveLastX: 0,
   moveLastY: 0,
+  moveStartY: 0,
+  moveJumpTriggered: false,
   actionBtnEl: null,
-  actionHintEl: null,
   actionStartY: 0,
   actionLastY: 0,
+  actionJumpTriggered: false,
   shootQueued: false,
   jumpQueued: false,
 };
 
 const INFINITE_LIVES = true;
+const JUMP_VELOCITY = -930;
 
 function clamp(v, min, max) {
   return Math.max(min, Math.min(max, v));
@@ -362,17 +365,14 @@ function ensureMobileHud() {
   hud.className = "mobileHud";
   hud.innerHTML = `
     <div class="mobileCluster left" id="moveZone">
-      <span class="zoneLabel">Commandes</span>
       <div class="stick" id="stick">
         <div class="stickKnob" id="stickKnob"></div>
       </div>
     </div>
     <div class="mobileCluster right" id="actionZone">
-      <span class="zoneLabel">Saut / Tir</span>
       <div class="actionRing">
         <button class="actionBtn" id="actionBtn" type="button">TIR</button>
       </div>
-      <span class="actionHint" id="actionHint">Tap: Tir | Swipe haut: Saut</span>
     </div>
   `;
 
@@ -381,11 +381,9 @@ function ensureMobileHud() {
   const moveZone = document.getElementById("moveZone");
   const actionZone = document.getElementById("actionZone");
   const actionBtn = document.getElementById("actionBtn");
-  const actionHint = document.getElementById("actionHint");
   const stick = document.getElementById("stick");
   const stickKnob = document.getElementById("stickKnob");
   MOBILE.actionBtnEl = actionBtn;
-  MOBILE.actionHintEl = actionHint;
 
   const getStickAnchor = () => {
     const rect = canvas.getBoundingClientRect();
@@ -425,6 +423,8 @@ function ensureMobileHud() {
     MOBILE.moveCenterY = anchor.y;
     MOBILE.moveLastX = event.clientX;
     MOBILE.moveLastY = event.clientY;
+    MOBILE.moveStartY = event.clientY;
+    MOBILE.moveJumpTriggered = false;
     updateStickFromPoint(event.clientX, event.clientY);
     const rect = canvas.getBoundingClientRect();
     const localX = anchor.x - rect.left;
@@ -441,12 +441,17 @@ function ensureMobileHud() {
     event.preventDefault();
     MOBILE.moveLastX = event.clientX;
     MOBILE.moveLastY = event.clientY;
+    if (!MOBILE.moveJumpTriggered && event.clientY - MOBILE.moveStartY < -22) {
+      MOBILE.jumpQueued = true;
+      MOBILE.moveJumpTriggered = true;
+    }
     updateStickFromPoint(event.clientX, event.clientY);
   });
 
   const resetMove = (event) => {
     if (event.pointerId !== MOBILE.movePointerId) return;
     MOBILE.movePointerId = null;
+    MOBILE.moveJumpTriggered = false;
     updateStickFromPoint(MOBILE.moveLastX, MOBILE.moveLastY, true);
     stick.style.left = "auto";
     stick.style.top = "auto";
@@ -469,6 +474,7 @@ function ensureMobileHud() {
     MOBILE.actionPointerId = event.pointerId;
     MOBILE.actionStartY = event.clientY;
     MOBILE.actionLastY = event.clientY;
+    MOBILE.actionJumpTriggered = false;
     actionZone.setPointerCapture(event.pointerId);
   });
 
@@ -476,16 +482,19 @@ function ensureMobileHud() {
     if (event.pointerId !== MOBILE.actionPointerId) return;
     event.preventDefault();
     MOBILE.actionLastY = event.clientY;
+    if (!MOBILE.actionJumpTriggered && event.clientY - MOBILE.actionStartY < -18) {
+      MOBILE.jumpQueued = true;
+      MOBILE.actionJumpTriggered = true;
+    }
   });
 
   const releaseActionPad = (event) => {
     if (event.pointerId !== MOBILE.actionPointerId) return;
     const dy = MOBILE.actionLastY - MOBILE.actionStartY;
-    if (dy < -28) {
-      MOBILE.jumpQueued = true;
-    } else {
+    if (!MOBILE.actionJumpTriggered && dy > -14) {
       MOBILE.shootQueued = true;
     }
+    MOBILE.actionJumpTriggered = false;
     MOBILE.actionPointerId = null;
   };
 
@@ -630,8 +639,8 @@ function updateInput(dt) {
   if (!state.player) return;
 
   if (MOBILE.active) {
-    state.keys.left = MOBILE.stickX < -0.22;
-    state.keys.right = MOBILE.stickX > 0.22;
+    state.keys.left = MOBILE.stickX < -0.4;
+    state.keys.right = MOBILE.stickX > 0.4;
     state.keys.up = false;
 
     if (MOBILE.jumpQueued) {
@@ -820,7 +829,7 @@ function updatePlayer(dt) {
         p.vx = -p.wallDir * 250;
       }
 
-      p.vy = -620;
+        p.vy = JUMP_VELOCITY;
       if (!canGroundJump) {
         p.jumpsLeft = Math.max(0, p.jumpsLeft - 1);
       }
@@ -907,6 +916,14 @@ function applyPlayerDamage(amount, source) {
 }
 
 function hitEnemy(enemy, damage, pushDir = 0) {
+  if (enemy.type !== "boss") {
+    enemy.hp = 0;
+    enemy.vx += pushDir * 140;
+    state.hitSparks.push({ x: enemy.x + enemy.w * 0.5, y: enemy.y + enemy.h * 0.3, life: 0.2 });
+    state.score += 260;
+    return;
+  }
+
   enemy.hp -= damage;
   enemy.vx += pushDir * 140;
   state.hitSparks.push({ x: enemy.x + enemy.w * 0.5, y: enemy.y + enemy.h * 0.3, life: 0.2 });
@@ -1516,7 +1533,6 @@ function render() {
 
   drawPlayer();
   drawShots();
-  drawHud();
   drawObjectiveHints();
 }
 
